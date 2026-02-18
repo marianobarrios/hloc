@@ -1,0 +1,149 @@
+mod stats;
+mod util;
+mod charts;
+
+use stats::{CodeStats, GlobalStats, HistoricStats};
+use git2::build::CheckoutBuilder;
+use git2::{Commit, Sort};
+use std::collections::{BTreeMap, HashMap};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime};
+use walkdir::WalkDir;
+use charts::{get_by_language_chart, get_by_repo_chart};
+use crate::util::{datetime_from_epoch_seconds, YearMonth};
+
+fn main() {
+    let repos = collect_repositories("/Users/mariano/workspace/");
+    let stats = get_historic_stats_in_repos(&repos);
+
+    let by_repo_data = get_by_repo_chart(&stats);
+    fs::write(
+        "by_repo_data.js",
+        format!(
+            "by_repo_data = {}",
+            serde_json::to_string(&by_repo_data).unwrap()
+        ),
+    )
+    .unwrap();
+
+    let by_lang_data = get_by_language_chart(&stats);
+    fs::write(
+        "by_lang_data.js",
+        format!(
+            "by_lang_data = {}",
+            serde_json::to_string(&by_lang_data).unwrap()
+        ),
+    )
+    .unwrap();
+}
+
+/// Finds all Git repositories recursively.
+fn collect_repositories<P: AsRef<Path>>(path: P) -> Vec<PathBuf> {
+    // The iterator is created only for its side effects
+    let mut repos = Vec::new();
+    WalkDir::new(path)
+        .into_iter()
+        .filter_entry(|e| {
+            if is_git_repo(e.path()) {
+                repos.push(e.path().to_owned());
+                false // do not recurse inside repositories
+            } else {
+                true
+            }
+        })
+        .for_each(|_| ()); // force iterator consumption
+    repos
+}
+
+/// Checks whether the supplied path is a Git repo with at least one commit
+fn is_git_repo<P: AsRef<Path>>(path: P) -> bool {
+    match git2::Repository::open(path) {
+        Ok(repo) => repo.head().is_ok(),
+        Err(_) => false,
+    }
+}
+
+fn get_historic_stats_in_repos<P: AsRef<Path>>(repo_paths: &[P]) -> GlobalStats {
+    // TODO: Parallelize
+    let mut repositories = HashMap::new();
+    for path in repo_paths {
+        println!("getting stats for {}...", path.as_ref().display());
+        let start = SystemTime::now();
+        let stats = get_historic_stats(path);
+        println!(
+            "stats for {} obtained in {:?}",
+            path.as_ref().display(),
+            start.elapsed().unwrap()
+        );
+        repositories.insert(
+            path.as_ref()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned(),
+            stats,
+        );
+    }
+
+    GlobalStats { repositories }
+}
+
+fn get_historic_stats<P: AsRef<Path>>(git_repo_path: P) -> HistoricStats {
+    // Using a temporary directory for cloning the Git repository
+    // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
+    // needed because the library used for line counting, tokei, needs it.
+    // `tempfile` will remove the directory when it's dropped at the end of this function.
+    // An abnormal program termination will rely on the cleaning mechanism of the operating system.
+    // Portability note: `tempfile` uses `tempfs` in Linux, which lives in memory. In MacOS it uses
+    // the normal disk, which may be slightly slower but save some memory.
+    let tmp_dir = tempfile::tempdir().unwrap();
+
+    // cloning the repository (as opposed to something else like using a worktree or operating
+    // directly) allows for 100% not touching it, even working without write permissions.
+    let repo =
+        git2::Repository::clone(git_repo_path.as_ref().to_str().unwrap(), tmp_dir.path()).unwrap();
+
+    // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
+    // code, taking the last commit of each period of time, currently the month.
+    let samples: BTreeMap<YearMonth, Commit> = sample_commits(&repo);
+
+    // actually count the lines
+    get_stats_from_samples(&repo, &samples)
+}
+
+fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
+    let mut samples = BTreeMap::new();
+    let mut revwalk = repo.revwalk().unwrap();
+    revwalk.set_sorting(Sort::TOPOLOGICAL).unwrap();
+    revwalk.push_head().unwrap();
+    for oid in revwalk {
+        let oid = oid.unwrap();
+        let commit = repo.find_commit(oid).unwrap();
+        let time = datetime_from_epoch_seconds(commit.time().seconds());
+
+        // as we are iterating in chronological order, the last commit for the period will stay
+        // in the map
+        samples.insert(YearMonth::from_datetime(time), commit);
+    }
+    samples
+}
+
+fn get_stats_from_samples(
+    repo: &git2::Repository,
+    samples: &BTreeMap<YearMonth, Commit>,
+) -> HistoricStats {
+    let mut snapshots = BTreeMap::new();
+    for (&date, commit) in samples.iter() {
+        let tree = commit.tree().unwrap();
+        repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force()))
+            .unwrap();
+
+        // count the lines for this commit
+        let stats = CodeStats::generate(repo.workdir().unwrap());
+
+        snapshots.insert(date, stats);
+    }
+    HistoricStats { snapshots }
+}
