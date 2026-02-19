@@ -1,14 +1,15 @@
 mod charts;
 mod stats;
 mod util;
-use log::{debug, info, trace, warn};
+use log::debug;
 
+use crate::charts::write_output;
 use crate::util::{YearMonth, datetime_from_epoch_seconds};
-use charts::{get_by_language_chart, get_by_repo_chart};
 use clap::Parser;
 use console::style;
 use git2::build::CheckoutBuilder;
 use git2::{Commit, Sort};
+use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
 use std::io::Write;
@@ -16,8 +17,12 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::time::SystemTime;
-use std::{fs, io, thread};
+use std::{io, thread};
 use walkdir::WalkDir;
+
+#[derive(Embed)]
+#[folder = "templates"]
+struct Asset;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -26,38 +31,16 @@ struct Args {
     #[arg(short, long)]
     base_dir: String,
 
-    /// Number of times to greet
-    #[arg(short, long, default_value_t = 1)]
-    count: u8,
+    #[arg(short, long, default_value = "out")]
+    output_dir: PathBuf,
 }
 
 fn main() {
     env_logger::init();
-
     let args = Args::parse();
-
     let repos = collect_repositories(&args.base_dir);
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos);
-
-    let by_repo_data = get_by_repo_chart(&stats);
-    fs::write(
-        "by_repo_data.js",
-        format!(
-            "by_repo_data = {}",
-            serde_json::to_string(&by_repo_data).unwrap()
-        ),
-    )
-    .unwrap();
-
-    let by_lang_data = get_by_language_chart(&stats);
-    fs::write(
-        "by_lang_data.js",
-        format!(
-            "by_lang_data = {}",
-            serde_json::to_string(&by_lang_data).unwrap()
-        ),
-    )
-    .unwrap();
+    write_output(&args.output_dir, &stats);
 }
 
 /// Finds all Git repositories recursively.
