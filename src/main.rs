@@ -1,6 +1,7 @@
 mod charts;
 mod stats;
 mod util;
+use log::{debug, info, trace, warn};
 
 use crate::util::{YearMonth, datetime_from_epoch_seconds};
 use charts::{get_by_language_chart, get_by_repo_chart};
@@ -31,6 +32,8 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
+
     let args = Args::parse();
 
     let repos = collect_repositories(&args.base_dir);
@@ -127,6 +130,7 @@ fn get_historic_stats<P: AsRef<Path>>(git_repo_path: P, tx: Sender<YearMonth>) -
 
     // cloning the repository (as opposed to something else like using a worktree or operating
     // directly) allows for 100% not touching it, even working without write permissions.
+    debug!("cloning repo in {}", tmp_dir.path().to_str().unwrap());
     let repo =
         git2::Repository::clone(git_repo_path.as_ref().to_str().unwrap(), tmp_dir.path()).unwrap();
 
@@ -163,6 +167,9 @@ fn get_stats_from_samples(
     let mut snapshots = BTreeMap::new();
     for (&date, commit) in samples.iter() {
         let tree = commit.tree().unwrap();
+
+        debug!("checking out tree {:?}", tree.as_object());
+
         repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force()))
             .unwrap();
 
