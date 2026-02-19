@@ -1,9 +1,40 @@
+use crate::Asset;
 use crate::stats::{CodeStats, GlobalStats, LanguageStats};
 use crate::util::YearMonth;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+use std::{fs, io};
 
-pub fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
+pub fn write_output(output_dir: &Path, stats: &GlobalStats) {
+    let by_repo_data = get_by_repo_chart(&stats);
+    let by_lang_data = get_by_language_chart(&stats);
+
+    match fs::remove_dir_all(output_dir) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => (),
+        Err(err) => panic!("{}", err),
+    }
+    fs::create_dir(output_dir).unwrap();
+
+    copy_file(output_dir, "chart.html");
+    copy_file(output_dir, "chart.js");
+
+    let by_repo_data = serde_json::to_string(&by_repo_data).unwrap();
+    let by_lang_data = serde_json::to_string(&by_lang_data).unwrap();
+    fs::write(
+        output_dir.join("data.js"),
+        format!("by_repo_data = {by_repo_data}; by_lang_data = {by_lang_data}"),
+    )
+    .unwrap();
+}
+
+fn copy_file<P: AsRef<Path>>(output_dir: P, file_name: &str) {
+    let chart_html = Asset::get(file_name).unwrap();
+    fs::write(output_dir.as_ref().join(file_name), chart_html.data).unwrap();
+}
+
+fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     // pre-process data, grouting by language and filling gaps in commits
     let (min_month, max_month) = get_extreme_months(global_stats);
     let mut month_stats = BTreeMap::new();
@@ -48,7 +79,7 @@ pub fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     json!(rows)
 }
 
-pub fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
+fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
     // pre-process data, grouting by repository and filling gaps in commits
     let (min_month, max_month) = get_extreme_months(global_stats);
 
