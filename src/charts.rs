@@ -7,8 +7,8 @@ use std::path::Path;
 use std::{fs, io};
 
 pub fn write_output(output_dir: &Path, stats: &GlobalStats) {
-    let by_repo_data = get_by_repo_chart(&stats);
-    let by_lang_data = get_by_language_chart(&stats);
+    let by_repo_data = get_by_repo_chart(stats);
+    let by_lang_data = get_by_language_chart(stats);
 
     match fs::remove_dir_all(output_dir) {
         Ok(()) => {}

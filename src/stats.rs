@@ -47,10 +47,12 @@ impl CodeStats {
 
     pub fn generate(path: &Path) -> Self {
         let mut tokei_languages = tokei::Languages::new();
-        let mut config = Config::default();
 
         // as we are counting on a clean clone, we don't need to ignore local files
-        config.no_ignore = Some(true);
+        let config = Config {
+            no_ignore: Some(true),
+            ..Default::default()
+        };
 
         tokei_languages.get_statistics(&[path], &[], &config);
         Self::from_tokei_stats(&tokei_languages)

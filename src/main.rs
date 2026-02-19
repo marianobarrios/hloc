@@ -31,6 +31,9 @@ struct Args {
     #[arg(short, long)]
     base_dir: String,
 
+    #[arg(short, long, action)]
+    suppress_progress: bool,
+
     #[arg(short, long, default_value = "out")]
     output_dir: PathBuf,
 }
@@ -39,7 +42,7 @@ fn main() {
     env_logger::init();
     let args = Args::parse();
     let repos = collect_repositories(&args.base_dir);
-    let stats = get_historic_stats_in_repos(&args.base_dir, &repos);
+    let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
     write_output(&args.output_dir, &stats);
 }
 
@@ -69,39 +72,44 @@ fn is_git_repo<P: AsRef<Path>>(path: P) -> bool {
     }
 }
 
-fn get_historic_stats_in_repos<P1: AsRef<Path> + Sync, P2: AsRef<Path> + Sync + Send>(
-    base_path: &P1,
-    repo_paths: &[P2],
+fn get_historic_stats_in_repos(
+    base_path: &str,
+    repo_paths: &[PathBuf],
+    suppress_progress: bool,
 ) -> GlobalStats {
     // TODO: Parallelize?
 
     let mut repositories = HashMap::new();
     for path in repo_paths {
-        let suffix = path.as_ref().strip_prefix(base_path).unwrap();
+        let suffix = path.strip_prefix(base_path).unwrap();
         let (tx, rx) = mpsc::channel();
 
         let start = SystemTime::now();
         let join_handle = {
-            let path = path.as_ref().to_owned();
-            thread::spawn(|| get_historic_stats(path, tx))
+            let path = path.to_owned();
+            thread::spawn(move || get_historic_stats(&path, tx))
         };
-        for completed_month in rx.iter() {
-            print!("\r  {:-100} {:7}", suffix.display(), completed_month);
-            io::stdout().flush().unwrap();
+        if !suppress_progress {
+            for completed_month in rx.iter() {
+                print!("\r  {:-100} {:7}", suffix.display(), completed_month);
+                io::stdout().flush().unwrap();
+            }
         }
         let stats = join_handle.join().unwrap();
-        println!(
-            "\r{check} {msg:-100}{time:7.2}s",
-            check = style("✔").green(),
-            msg = suffix.display(),
-            time = start.elapsed().unwrap().as_secs_f32()
-        );
+        if !suppress_progress {
+            println!(
+                "\r{check} {msg:-100}{time:7.2}s",
+                check = style("✔").green(),
+                msg = suffix.display(),
+                time = start.elapsed().unwrap().as_secs_f32()
+            );
+        }
         repositories.insert(suffix.to_str().unwrap().to_owned(), stats);
     }
     GlobalStats { repositories }
 }
 
-fn get_historic_stats<P: AsRef<Path>>(git_repo_path: P, tx: Sender<YearMonth>) -> HistoricStats {
+fn get_historic_stats(git_repo_path: &Path, tx: Sender<YearMonth>) -> HistoricStats {
     // Using a temporary directory for cloning the Git repository
     // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
     // needed because the library used for line counting, tokei, needs it.
@@ -114,8 +122,7 @@ fn get_historic_stats<P: AsRef<Path>>(git_repo_path: P, tx: Sender<YearMonth>) -
     // cloning the repository (as opposed to something else like using a worktree or operating
     // directly) allows for 100% not touching it, even working without write permissions.
     debug!("cloning repo in {}", tmp_dir.path().to_str().unwrap());
-    let repo =
-        git2::Repository::clone(git_repo_path.as_ref().to_str().unwrap(), tmp_dir.path()).unwrap();
+    let repo = git2::Repository::clone(git_repo_path.to_str().unwrap(), tmp_dir.path()).unwrap();
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
     // code, taking the last commit of each period of time, currently the month.
@@ -128,7 +135,9 @@ fn get_historic_stats<P: AsRef<Path>>(git_repo_path: P, tx: Sender<YearMonth>) -
 fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
-    revwalk.set_sorting(Sort::TOPOLOGICAL).unwrap();
+    revwalk
+        .set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE)
+        .unwrap();
     revwalk.push_head().unwrap();
     for oid in revwalk {
         let oid = oid.unwrap();
