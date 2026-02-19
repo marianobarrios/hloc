@@ -26,7 +26,6 @@ pub struct CodeStats {
 #[derive(Debug, Clone)]
 pub struct LanguageStats {
     pub line_count: usize,
-    pub file_count: usize,
     pub children: HashMap<tokei::LanguageType, usize>,
 }
 
@@ -67,7 +66,6 @@ impl CodeStats {
             }
             let language_stats = LanguageStats {
                 line_count: tokei_lang.code,
-                file_count: tokei_lang.reports.len(),
                 children,
             };
             languages.insert(language_type, language_stats);
@@ -89,7 +87,6 @@ impl LanguageStats {
     pub fn zero() -> Self {
         Self {
             line_count: 0,
-            file_count: 0,
             children: HashMap::new(),
         }
     }
@@ -98,7 +95,6 @@ impl LanguageStats {
 impl AddAssign for LanguageStats {
     fn add_assign(&mut self, rhs: Self) {
         self.line_count += rhs.line_count;
-        self.file_count += rhs.file_count;
         for (lang, stats) in rhs.children {
             let value = self.children.entry(lang).or_insert(0);
             *value += stats;
