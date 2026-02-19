@@ -19,7 +19,7 @@ impl YearMonth {
 
 impl Display for YearMonth {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}-{}", self.year, self.month)
+        write!(f, "{}-{:02}", self.year, self.month)
     }
 }
 

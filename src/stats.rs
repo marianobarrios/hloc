@@ -1,8 +1,8 @@
+use crate::util::YearMonth;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::AddAssign;
 use std::path::Path;
 use tokei::Config;
-use crate::util::YearMonth;
 
 /// Statistics across repositories and time
 #[derive(Debug, Clone)]

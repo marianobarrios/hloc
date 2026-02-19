@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
-use serde_json::json;
 use crate::stats::{CodeStats, GlobalStats, LanguageStats, LineStats};
 use crate::util::YearMonth;
+use serde_json::json;
+use std::collections::{BTreeMap, HashMap};
 
 pub fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     // pre-process data, grouting by language and filling gaps in commits
