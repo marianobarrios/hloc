@@ -25,16 +25,9 @@ pub struct CodeStats {
 /// Statistics of a single repository and language at a single point in time
 #[derive(Debug, Clone)]
 pub struct LanguageStats {
-    pub line_stats: LineStats,
+    pub line_count: usize,
     pub file_count: usize,
-    pub children: HashMap<tokei::LanguageType, LineStats>,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct LineStats {
-    pub blanks: usize,
-    pub code: usize,
-    pub comments: usize,
+    pub children: HashMap<tokei::LanguageType, usize>,
 }
 
 impl AddAssign for HistoricStats {
@@ -64,19 +57,11 @@ impl CodeStats {
         for (&language_type, tokei_lang) in tokei_languages {
             let mut children = HashMap::new();
             for (&language_type, reports) in tokei_lang.children.iter() {
-                let line_stats = LineStats {
-                    blanks: reports.iter().map(|l| l.stats.blanks).sum(),
-                    code: reports.iter().map(|l| l.stats.code).sum(),
-                    comments: reports.iter().map(|l| l.stats.comments).sum(),
-                };
+                let line_stats = reports.iter().map(|l| l.stats.code).sum();
                 children.insert(language_type, line_stats);
             }
             let language_stats = LanguageStats {
-                line_stats: LineStats {
-                    blanks: tokei_lang.blanks,
-                    code: tokei_lang.code,
-                    comments: tokei_lang.comments,
-                },
+                line_count: tokei_lang.code,
                 file_count: tokei_lang.reports.len(),
                 children,
             };
@@ -98,7 +83,7 @@ impl AddAssign for CodeStats {
 impl LanguageStats {
     pub fn zero() -> Self {
         Self {
-            line_stats: LineStats::zero(),
+            line_count: 0,
             file_count: 0,
             children: HashMap::new(),
         }
@@ -107,29 +92,11 @@ impl LanguageStats {
 
 impl AddAssign for LanguageStats {
     fn add_assign(&mut self, rhs: Self) {
-        self.line_stats += rhs.line_stats;
+        self.line_count += rhs.line_count;
         self.file_count += rhs.file_count;
         for (lang, stats) in rhs.children {
-            let value = self.children.entry(lang).or_insert(LineStats::zero());
+            let value = self.children.entry(lang).or_insert(0);
             *value += stats;
         }
-    }
-}
-
-impl LineStats {
-    pub fn zero() -> Self {
-        Self {
-            blanks: 0,
-            code: 0,
-            comments: 0,
-        }
-    }
-}
-
-impl AddAssign for LineStats {
-    fn add_assign(&mut self, rhs: Self) {
-        self.blanks += rhs.blanks;
-        self.code += rhs.code;
-        self.comments += rhs.comments;
     }
 }
