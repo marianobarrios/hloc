@@ -135,6 +135,11 @@ fn get_historic_stats(git_repo_path: &Path, tx: Sender<YearMonth>) -> HistoricSt
 fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
+
+    // Only traverse the default branch
+    revwalk.simplify_first_parent().unwrap();
+
+    // The default format is reversed chronological, reversing again for pure chronological
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE)
         .unwrap();
