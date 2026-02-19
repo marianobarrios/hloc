@@ -1,4 +1,4 @@
-use crate::stats::{CodeStats, GlobalStats, LanguageStats, LineStats};
+use crate::stats::{CodeStats, GlobalStats, LanguageStats};
 use crate::util::YearMonth;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -40,7 +40,7 @@ pub fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
                 .get(language)
                 .unwrap_or(&LanguageStats::zero())
                 .clone();
-            row.push(json!(lang_stats.line_stats.code));
+            row.push(json!(lang_stats.line_count));
         }
         rows.push(json!(row));
     }
@@ -56,7 +56,7 @@ pub fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
     for month in gen_month_range(min_month, max_month) {
         let mut repo_stats = BTreeMap::new();
         for repo in global_stats.repositories.keys() {
-            repo_stats.insert(repo.clone(), LineStats::zero());
+            repo_stats.insert(repo.clone(), 0);
         }
         month_stats.insert(month, repo_stats);
         for (repo, historic_stats) in global_stats.repositories.iter() {
@@ -68,7 +68,7 @@ pub fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
                 .cloned()
                 .unwrap_or(CodeStats::zero());
             for stats in floor.languages.values() {
-                *month_stats.get_mut(&month).unwrap().get_mut(repo).unwrap() += stats.line_stats;
+                *month_stats.get_mut(&month).unwrap().get_mut(repo).unwrap() += stats.line_count;
             }
         }
     }
@@ -87,8 +87,8 @@ pub fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
     for (month, stats) in month_stats {
         let mut row = vec![json!(month.to_string())];
         for repo in repos.iter() {
-            let lang_stats = stats.get(repo).copied().unwrap_or(LineStats::zero());
-            row.push(json!(lang_stats.code));
+            let lang_stats = stats.get(repo).copied().unwrap_or(0);
+            row.push(json!(lang_stats));
         }
         rows.push(json!(row));
     }
@@ -128,7 +128,7 @@ fn get_all_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> {
         let last_commit = historic_stats.snapshots.values().last().unwrap();
         for (&language, lang_stats) in last_commit.languages.iter() {
             let count = language_map.entry(language).or_insert(0);
-            *count += lang_stats.line_stats.code;
+            *count += lang_stats.line_count;
         }
     }
     let mut languages: Vec<_> = language_map.keys().cloned().collect();
@@ -143,7 +143,7 @@ fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<String> {
         let last_commit = historic_stats.snapshots.values().last().unwrap();
         for lang_stats in last_commit.languages.values() {
             let count = repo_map.entry(repo.clone()).or_insert(0);
-            *count += lang_stats.line_stats.code;
+            *count += lang_stats.line_count;
         }
     }
     let mut repos: Vec<_> = repo_map.keys().cloned().collect();

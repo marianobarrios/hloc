@@ -100,11 +100,7 @@ fn get_historic_stats_in_repos<P1: AsRef<Path> + Sync, P2: AsRef<Path> + Sync + 
             thread::spawn(|| get_historic_stats(path, tx))
         };
         for completed_month in rx.iter() {
-            print!(
-                "\r  {:-100} {:7}",
-                suffix.display(),
-                completed_month
-            );
+            print!("\r  {:-100} {:7}", suffix.display(), completed_month);
             io::stdout().flush().unwrap();
         }
         let stats = join_handle.join().unwrap();
