@@ -3,10 +3,10 @@ use crate::stats::{CodeStats, GlobalStats, LanguageStats};
 use crate::util::YearMonth;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-pub fn write_output(output_dir: &Path, stats: &GlobalStats) {
+pub fn write_output(output_dir: &Path, stats: &GlobalStats) -> PathBuf {
     let by_repo_data = get_by_repo_chart(stats);
     let by_lang_data = get_by_language_chart(stats);
 
@@ -27,6 +27,7 @@ pub fn write_output(output_dir: &Path, stats: &GlobalStats) {
         format!("by_repo_data = {by_repo_data}; by_lang_data = {by_lang_data}"),
     )
     .unwrap();
+    output_dir.join("chart.html")
 }
 
 fn copy_file<P: AsRef<Path>>(output_dir: P, file_name: &str) {
@@ -66,11 +67,7 @@ fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     for (month, stats) in month_stats {
         let mut row = vec![json!(month.to_string())];
         for language in languages.iter() {
-            let lang_stats = stats
-                .languages
-                .get(language)
-                .unwrap_or(&LanguageStats::zero())
-                .clone();
+            let lang_stats = stats.languages.get(language).unwrap_or(&LanguageStats::zero()).clone();
             row.push(json!(lang_stats.line_count));
         }
         rows.push(json!(row));
@@ -140,13 +137,8 @@ fn gen_month_range(from: YearMonth, to: YearMonth) -> Vec<YearMonth> {
 }
 
 fn get_extreme_months(global_stats: &GlobalStats) -> (YearMonth, YearMonth) {
-    let months: Vec<_> = global_stats
-        .repositories
-        .values()
-        .flat_map(|s| s.snapshots.iter())
-        .map(|s| s.0)
-        .cloned()
-        .collect();
+    let months: Vec<_> =
+        global_stats.repositories.values().flat_map(|s| s.snapshots.iter()).map(|s| s.0).cloned().collect();
     let min = months.iter().min().unwrap();
     let max = months.iter().max().unwrap();
     (*min, *max)

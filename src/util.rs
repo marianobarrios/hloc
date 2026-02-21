@@ -10,10 +10,7 @@ pub struct YearMonth {
 
 impl YearMonth {
     pub fn from_datetime(datetime: DateTime<Utc>) -> Self {
-        Self {
-            year: datetime.year(),
-            month: datetime.month() as u8,
-        }
+        Self { year: datetime.year(), month: datetime.month() as u8 }
     }
 }
 
