@@ -1,15 +1,14 @@
 mod charts;
 mod stats;
 mod util;
-use log::{debug, warn};
 
-use crate::charts::write_output;
-use crate::util::{YearMonth, datetime_from_epoch_seconds};
+use charts::write_output;
 use clap::Parser;
 use console::style;
 use git2::build::CheckoutBuilder;
 use git2::{Commit, ErrorCode, Sort};
 use indicatif::{ProgressBar, ProgressStyle};
+use log::{debug, warn};
 use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
@@ -18,6 +17,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::Sender;
 use std::thread;
 use std::time::{Duration, SystemTime};
+use util::{YearMonth, datetime_from_epoch_seconds};
 use walkdir::WalkDir;
 
 #[derive(Embed)]
@@ -44,9 +44,6 @@ struct Args {
 fn main() {
     env_logger::init();
     let args = Args::parse();
-
-    println!("{:?}", args.skip_language);
-
     let repos = collect_repositories(&args.base_dir);
     let start = SystemTime::now();
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
@@ -94,49 +91,52 @@ fn get_historic_stats_in_repos(
 
     let mut repositories = HashMap::new();
     for (i, path) in repo_paths.iter().enumerate() {
-        let suffix = if path == base_path {
-            path.file_name().unwrap().to_str().unwrap()
-        } else {
-            path.strip_prefix(base_path).unwrap().to_str().unwrap()
-        };
+        let display_name = display_name(base_path, path);
+        let bar = create_progress_bar(i, repo_paths.len(), &display_name);
         let (tx, rx) = mpsc::channel();
-
-        let bar = ProgressBar::new(100);
-        bar.set_prefix(format_prefix(i, repo_paths.len(), suffix, false));
-        bar.set_style(
-            ProgressStyle::with_template("{spinner:.green} {prefix:45} [{bar:45.cyan/blue}] {msg}")
-                .unwrap()
-                .progress_chars("=> "),
-        );
-        bar.enable_steady_tick(Duration::from_millis(100));
-
-        if !suppress_progress {
-            bar.set_message("cloning");
-        }
         let start = SystemTime::now();
         let join_handle = {
             let path = path.to_owned();
             thread::spawn(move || get_historic_stats(&path, tx))
         };
         if !suppress_progress {
+            bar.set_message("cloning");
             for (percentage, completed_month) in rx.iter() {
                 bar.set_position((percentage * 100.0) as u64);
                 bar.set_message(format!("counting {}", completed_month));
             }
             bar.finish_and_clear();
-        }
-        let stats = join_handle.join().unwrap();
-        if !suppress_progress {
             eprintln!(
                 "{check} {prefix:101} {time:.2}s",
                 check = style("✔").green(),
-                prefix = format_prefix(i, repo_paths.len(), suffix, true),
+                prefix = format_prefix(i, repo_paths.len(), &display_name, true),
                 time = start.elapsed().unwrap().as_secs_f32()
             );
         }
-        repositories.insert(suffix.to_owned(), stats);
+        let stats = join_handle.join().unwrap();
+        repositories.insert(display_name, stats);
     }
     GlobalStats { repositories }
+}
+
+fn display_name(base_path: &str, path: &PathBuf) -> String {
+    if path == base_path {
+        path.file_name().unwrap().to_str().unwrap().to_owned()
+    } else {
+        path.strip_prefix(base_path).unwrap().to_str().unwrap().to_owned()
+    }
+}
+
+fn create_progress_bar(i: usize, total_repos: usize, display_name: &str) -> ProgressBar {
+    let bar = ProgressBar::new(100);
+    bar.set_prefix(format_prefix(i, total_repos, display_name, false));
+    bar.set_style(
+        ProgressStyle::with_template("{spinner:.green} {prefix:45} [{bar:45.cyan/blue}] {msg}")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+    bar.enable_steady_tick(Duration::from_millis(100));
+    bar
 }
 
 fn format_prefix(step: usize, total_steps: usize, suffix: &str, dim_prefix: bool) -> String {
