@@ -13,9 +13,6 @@ use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
-use std::thread;
 use std::time::{Duration, SystemTime};
 use util::{YearMonth, datetime_from_epoch_seconds};
 use walkdir::WalkDir;
@@ -93,18 +90,15 @@ fn get_historic_stats_in_repos(
     for (i, path) in repo_paths.iter().enumerate() {
         let display_name = display_name(base_path, path);
         let bar = create_progress_bar(i, repo_paths.len(), &display_name);
-        let (tx, rx) = mpsc::channel();
-        let start = SystemTime::now();
-        let join_handle = {
-            let path = path.to_owned();
-            thread::spawn(move || get_historic_stats(&path, tx))
-        };
         if !suppress_progress {
             bar.set_message("cloning");
-            for (percentage, completed_month) in rx.iter() {
-                bar.set_position((percentage * 100.0) as u64);
-                bar.set_message(format!("counting {}", completed_month));
-            }
+        }
+        let start = SystemTime::now();
+        let stats = get_historic_stats(&path, |perc, month| {
+            bar.set_position((perc * 100.0) as u64);
+            bar.set_message(format!("counting {}", month));
+        });
+        if !suppress_progress {
             bar.finish_and_clear();
             eprintln!(
                 "{check} {prefix:101} {time:.2}s",
@@ -113,7 +107,6 @@ fn get_historic_stats_in_repos(
                 time = start.elapsed().unwrap().as_secs_f32()
             );
         }
-        let stats = join_handle.join().unwrap();
         repositories.insert(display_name, stats);
     }
     GlobalStats { repositories }
@@ -149,7 +142,10 @@ fn format_prefix(step: usize, total_steps: usize, suffix: &str, dim_prefix: bool
     format!("{prefix} {suffix}")
 }
 
-fn get_historic_stats(git_repo_path: &Path, tx: Sender<(f32, YearMonth)>) -> HistoricStats {
+fn get_historic_stats<F: Fn(f32, YearMonth) -> ()>(
+    git_repo_path: &Path,
+    update_reporter: F,
+) -> HistoricStats {
     // Using a temporary directory for cloning the Git repository
     // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
     // needed because the library used for line counting, tokei, needs it.
@@ -169,7 +165,7 @@ fn get_historic_stats(git_repo_path: &Path, tx: Sender<(f32, YearMonth)>) -> His
     let samples: BTreeMap<YearMonth, Commit> = sample_commits(&repo);
 
     // actually count the lines
-    get_stats_from_samples(&repo, &samples, tx)
+    get_stats_from_samples(&repo, &samples, update_reporter)
 }
 
 fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
@@ -194,10 +190,10 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     samples
 }
 
-fn get_stats_from_samples(
+fn get_stats_from_samples<F: Fn(f32, YearMonth) -> ()>(
     repo: &git2::Repository,
     samples: &BTreeMap<YearMonth, Commit>,
-    tx: Sender<(f32, YearMonth)>,
+    update_reporter: F,
 ) -> HistoricStats {
     let mut snapshots = BTreeMap::new();
     let total = samples.len();
@@ -218,7 +214,7 @@ fn get_stats_from_samples(
         snapshots.insert(date, stats);
 
         let progress = (i + 1) as f32 / total as f32;
-        tx.send((progress, date)).unwrap();
+        update_reporter(progress, date);
     }
     HistoricStats { snapshots }
 }
