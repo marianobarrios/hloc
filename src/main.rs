@@ -114,7 +114,7 @@ fn get_historic_stats_in_repos(
         };
         if !suppress_progress {
             for (percentage, completed_month) in rx.iter() {
-                bar.set_position(percentage);
+                bar.set_position((percentage * 100.0) as u64);
                 bar.set_message(format!("counting {}", completed_month));
             }
             bar.finish_and_clear();
@@ -143,7 +143,7 @@ fn format_prefix(step: usize, total_steps: usize, suffix: &str, dim_prefix: bool
     format!("{prefix} {suffix}")
 }
 
-fn get_historic_stats(git_repo_path: &Path, tx: Sender<(u64, YearMonth)>) -> HistoricStats {
+fn get_historic_stats(git_repo_path: &Path, tx: Sender<(f32, YearMonth)>) -> HistoricStats {
     // Using a temporary directory for cloning the Git repository
     // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
     // needed because the library used for line counting, tokei, needs it.
@@ -191,7 +191,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
 fn get_stats_from_samples(
     repo: &git2::Repository,
     samples: &BTreeMap<YearMonth, Commit>,
-    tx: Sender<(u64, YearMonth)>,
+    tx: Sender<(f32, YearMonth)>,
 ) -> HistoricStats {
     let mut snapshots = BTreeMap::new();
     let total = samples.len();
@@ -207,8 +207,8 @@ fn get_stats_from_samples(
 
         snapshots.insert(date, stats);
 
-        let percentage = ((i + 1) as f32 / total as f32) * 100.0;
-        tx.send((percentage as u64, date)).unwrap();
+        let progress = (i + 1) as f32 / total as f32;
+        tx.send((progress, date)).unwrap();
     }
     HistoricStats { snapshots }
 }
