@@ -6,9 +6,13 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-pub fn write_output(output_dir: &Path, stats: &GlobalStats) -> PathBuf {
-    let by_repo_data = get_by_repo_chart(stats);
-    let by_lang_data = get_by_language_chart(stats);
+pub fn write_output(
+    output_dir: &Path,
+    stats: &GlobalStats,
+    skip_languages: &[tokei::LanguageType],
+) -> PathBuf {
+    let by_repo_data = get_by_repo_chart(stats, skip_languages);
+    let by_lang_data = get_by_language_chart(stats, skip_languages);
 
     match fs::remove_dir_all(output_dir) {
         Ok(()) => {}
@@ -35,7 +39,10 @@ fn copy_file<P: AsRef<Path>>(output_dir: P, file_name: &str) {
     fs::write(output_dir.as_ref().join(file_name), chart_html.data).unwrap();
 }
 
-fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
+fn get_by_language_chart(
+    global_stats: &GlobalStats,
+    skip_languages: &[tokei::LanguageType],
+) -> serde_json::Value {
     // pre-process data, grouting by language and filling gaps in commits
     let (min_month, max_month) = get_extreme_months(global_stats);
     let mut month_stats = BTreeMap::new();
@@ -54,7 +61,7 @@ fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     }
 
     let mut rows = Vec::new();
-    let languages = get_all_languages(global_stats);
+    let languages = get_all_languages(global_stats, skip_languages);
 
     // header row
     let mut headers = vec![json!("Month")];
@@ -76,7 +83,10 @@ fn get_by_language_chart(global_stats: &GlobalStats) -> serde_json::Value {
     json!(rows)
 }
 
-fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
+fn get_by_repo_chart(
+    global_stats: &GlobalStats,
+    skip_languages: &[tokei::LanguageType],
+) -> serde_json::Value {
     // pre-process data, grouting by repository and filling gaps in commits
     let (min_month, max_month) = get_extreme_months(global_stats);
 
@@ -95,7 +105,10 @@ fn get_by_repo_chart(global_stats: &GlobalStats) -> serde_json::Value {
                 .map(|(_, v)| v)
                 .cloned()
                 .unwrap_or(CodeStats::zero());
-            for stats in floor.languages.values() {
+            for (language, stats) in floor.languages.iter() {
+                if skip_languages.contains(language) {
+                    continue;
+                }
                 *month_stats.get_mut(&month).unwrap().get_mut(repo).unwrap() += stats.line_count;
             }
         }
@@ -145,12 +158,18 @@ fn get_extreme_months(global_stats: &GlobalStats) -> (YearMonth, YearMonth) {
 }
 
 /// Returns all languages present in the stats, sorted by decreasing popularity (using last commit)
-fn get_all_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> {
+fn get_all_languages(
+    global_stats: &GlobalStats,
+    skip_languages: &[tokei::LanguageType],
+) -> Vec<tokei::LanguageType> {
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit = historic_stats.snapshots.values().last().unwrap();
-        for (&language, lang_stats) in last_commit.languages.iter() {
-            let count = language_map.entry(language).or_insert(0);
+        for (language, lang_stats) in last_commit.languages.iter() {
+            if skip_languages.contains(language) {
+                continue;
+            }
+            let count = language_map.entry(*language).or_insert(0);
             *count += lang_stats.line_count;
         }
     }
