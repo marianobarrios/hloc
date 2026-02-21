@@ -36,15 +36,21 @@ struct Args {
 
     #[arg(short, long, default_value = "out")]
     output_dir: PathBuf,
+
+    #[arg(long)]
+    skip_language: Vec<tokei::LanguageType>,
 }
 
 fn main() {
     env_logger::init();
     let args = Args::parse();
+
+    println!("{:?}", args.skip_language);
+
     let repos = collect_repositories(&args.base_dir);
     let start = SystemTime::now();
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
-    let html_file = write_output(&args.output_dir, &stats);
+    let html_file = write_output(&args.output_dir, &stats, &args.skip_language);
     println!(
         "Counted {} repositories in {:.2}s. Output: file://{}",
         repos.len(),
@@ -196,16 +202,14 @@ fn get_stats_from_samples(
     let mut snapshots = BTreeMap::new();
     let total = samples.len();
     for (i, (&date, commit)) in samples.iter().enumerate() {
-        let tree = commit.tree().unwrap();
+        debug!("checking out tree for commit {:?}", commit.id());
 
-        debug!("checking out tree {:?}", tree.as_object());
-
-        match repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force())) {
+        match repo.checkout_tree(commit.tree().unwrap().as_object(), Some(CheckoutBuilder::new().force())) {
             Ok(_) => (),
             Err(err) if err.code() == ErrorCode::NotFound => {
                 warn!("tree not found for commit {}, skipping", commit.id())
-            },
-            Err(err) => panic!("{err}")
+            }
+            Err(err) => panic!("{err}"),
         };
 
         // count the lines for this commit
