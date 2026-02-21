@@ -1,14 +1,14 @@
 mod charts;
 mod stats;
 mod util;
-use log::debug;
+use log::{debug, warn};
 
 use crate::charts::write_output;
 use crate::util::{YearMonth, datetime_from_epoch_seconds};
 use clap::Parser;
 use console::style;
 use git2::build::CheckoutBuilder;
-use git2::{Commit, Sort};
+use git2::{Commit, ErrorCode, Sort};
 use indicatif::{ProgressBar, ProgressStyle};
 use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
@@ -200,7 +200,13 @@ fn get_stats_from_samples(
 
         debug!("checking out tree {:?}", tree.as_object());
 
-        repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force())).unwrap();
+        match repo.checkout_tree(tree.as_object(), Some(CheckoutBuilder::new().force())) {
+            Ok(_) => (),
+            Err(err) if err.code() == ErrorCode::NotFound => {
+                warn!("tree not found for commit {}, skipping", commit.id())
+            },
+            Err(err) => panic!("{err}")
+        };
 
         // count the lines for this commit
         let stats = CodeStats::generate(repo.workdir().unwrap());
