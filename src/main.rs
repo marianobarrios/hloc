@@ -45,7 +45,12 @@ fn main() {
     let start = SystemTime::now();
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
     let html_file = write_output(&args.output_dir, &stats);
-    println!("Counted {} repositories in {:.2}s. Output: file://{}", repos.len(), start.elapsed().unwrap().as_secs_f32(), html_file.canonicalize().unwrap().to_str().unwrap());
+    println!(
+        "Counted {} repositories in {:.2}s. Output: file://{}",
+        repos.len(),
+        start.elapsed().unwrap().as_secs_f32(),
+        html_file.canonicalize().unwrap().to_str().unwrap()
+    );
 }
 
 /// Finds all Git repositories recursively.
