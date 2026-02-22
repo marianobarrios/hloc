@@ -7,13 +7,16 @@ use clap::Parser;
 use console::style;
 use git2::build::CheckoutBuilder;
 use git2::{Commit, ErrorCode, Sort};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{debug, warn};
+use rayon::prelude::*;
 use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::SystemTime;
 use util::{YearMonth, datetime_from_epoch_seconds};
 use walkdir::WalkDir;
 
@@ -45,12 +48,9 @@ fn main() {
     let start = SystemTime::now();
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
     let html_file = write_output(&args.output_dir, &stats, &args.skip_language);
-    println!(
-        "Counted {} repositories in {:.2}s. Output: file://{}",
-        repos.len(),
-        start.elapsed().unwrap().as_secs_f32(),
-        html_file.canonicalize().unwrap().to_str().unwrap()
-    );
+    let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
+    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().unwrap());
+    eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
 }
 
 /// Finds all Git repositories recursively.
@@ -84,32 +84,38 @@ fn get_historic_stats_in_repos(
     repo_paths: &[PathBuf],
     suppress_progress: bool,
 ) -> GlobalStats {
-    // TODO: Parallelize?
-
-    let mut repositories = HashMap::new();
-    for (i, path) in repo_paths.iter().enumerate() {
+    let repositories = Mutex::new(HashMap::new());
+    let multi_progress = MultiProgress::new();
+    let counter = AtomicUsize::new(0);
+    let total_steps = repo_paths.len();
+    let max_step_width = format!("{}", total_steps).len();
+    repo_paths.par_iter().for_each(|path| {
         let display_name = display_name(base_path, path);
-        let bar = create_progress_bar(i, repo_paths.len(), &display_name);
+        let bar = create_progress_bar(&multi_progress, &display_name);
         if !suppress_progress {
             bar.set_message("cloning");
         }
         let start = SystemTime::now();
-        let stats = get_historic_stats(&path, |perc, month| {
-            bar.set_position((perc * 100.0) as u64);
-            bar.set_message(format!("counting {}", month));
+        let stats = get_historic_stats(path, |perc, month| {
+            if !suppress_progress {
+                bar.set_position((perc * 100.0) as u64);
+                bar.set_message(format!("counting {}", month));
+            }
         });
         if !suppress_progress {
             bar.finish_and_clear();
-            eprintln!(
-                "{check} {prefix:101} {time:.2}s",
+            let step = counter.fetch_add(1, Ordering::Relaxed);
+            let counter = style(format!("[{step1:max_step_width$}/{total_steps}]", step1 = step + 1)).dim();
+            let time = style(format!("{time:7.2}s", time = start.elapsed().unwrap().as_secs_f32())).blue();
+            bar.println(format!(
+                "{check} {display_name:45} {counter} {time}",
                 check = style("✔").green(),
-                prefix = format_prefix(i, repo_paths.len(), &display_name, true),
-                time = start.elapsed().unwrap().as_secs_f32()
-            );
+            ));
         }
+        let mut repositories = repositories.lock().unwrap();
         repositories.insert(display_name, stats);
-    }
-    GlobalStats { repositories }
+    });
+    GlobalStats { repositories: repositories.lock().unwrap().clone() }
 }
 
 fn display_name(base_path: &str, path: &PathBuf) -> String {
@@ -120,29 +126,18 @@ fn display_name(base_path: &str, path: &PathBuf) -> String {
     }
 }
 
-fn create_progress_bar(i: usize, total_repos: usize, display_name: &str) -> ProgressBar {
-    let bar = ProgressBar::new(100);
-    bar.set_prefix(format_prefix(i, total_repos, display_name, false));
+fn create_progress_bar(multi_progress: &MultiProgress, display_name: &str) -> ProgressBar {
+    let bar = multi_progress.add(ProgressBar::new(100));
+    bar.set_prefix(display_name.to_owned());
     bar.set_style(
         ProgressStyle::with_template("{spinner:.green} {prefix:45} [{bar:45.cyan/blue}] {msg}")
             .unwrap()
             .progress_chars("=> "),
     );
-    bar.enable_steady_tick(Duration::from_millis(100));
     bar
 }
 
-fn format_prefix(step: usize, total_steps: usize, suffix: &str, dim_prefix: bool) -> String {
-    let step1 = step + 1;
-    let max_step_width = format!("{}", total_steps).len();
-    let mut prefix = style(format!("[{step1:max_step_width$}/{total_steps}]"));
-    if dim_prefix {
-        prefix = prefix.dim();
-    }
-    format!("{prefix} {suffix}")
-}
-
-fn get_historic_stats<F: Fn(f32, YearMonth) -> ()>(
+fn get_historic_stats<F: Fn(f32, YearMonth)>(
     git_repo_path: &Path,
     update_reporter: F,
 ) -> HistoricStats {
@@ -190,7 +185,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     samples
 }
 
-fn get_stats_from_samples<F: Fn(f32, YearMonth) -> ()>(
+fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
     repo: &git2::Repository,
     samples: &BTreeMap<YearMonth, Commit>,
     update_reporter: F,
