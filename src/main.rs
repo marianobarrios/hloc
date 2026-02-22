@@ -19,6 +19,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
 use util::{YearMonth, datetime_from_epoch_seconds};
 use walkdir::WalkDir;
+use util::MutexExt;
+use util::OsStrExt;
+use util::PathExt;
 
 #[derive(Embed)]
 #[folder = "templates"]
@@ -109,17 +112,19 @@ fn get_historic_stats_in_repos(
             let time = style(format!("{time:7.2}s", time = start.elapsed().unwrap().as_secs_f32())).blue();
             bar.println(format!("{check} {display_name:45} {counter} {time}", check = style("✔").green(),));
         }
-        let mut repositories = repositories.lock().unwrap();
+
+        let mut repositories = repositories.lock_or_panic();
         repositories.insert(display_name, stats);
     });
-    GlobalStats { repositories: repositories.lock().unwrap().clone() }
+    let repositories = repositories.lock_or_panic();
+    GlobalStats { repositories: repositories.clone() }
 }
 
 fn display_name(base_path: &str, path: &PathBuf) -> String {
     if path == base_path {
-        path.file_name().unwrap().to_str().expect("valid utf-8").to_owned()
+        path.file_name().unwrap().to_str_or_panic().to_owned()
     } else {
-        path.strip_prefix(base_path).unwrap().to_str().expect("valid utf-8").to_owned()
+        path.strip_prefix(base_path).unwrap().to_str_or_panic().to_owned()
     }
 }
 
@@ -146,8 +151,8 @@ fn get_historic_stats<F: Fn(f32, YearMonth)>(git_repo_path: &Path, update_report
 
     // cloning the repository (as opposed to something else like using a worktree or operating
     // directly) allows for 100% not touching it, even working without write permissions.
-    debug!("cloning repo in {}", tmp_dir.path().to_str().expect("valid utf-8"));
-    let repo = git2::Repository::clone(git_repo_path.to_str().expect("valid utf-8"), tmp_dir.path()).unwrap();
+    debug!("cloning repo in {}", tmp_dir.path().to_str_or_panic());
+    let repo = git2::Repository::clone(git_repo_path.to_str_or_panic(), tmp_dir.path()).unwrap();
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
     // code, taking the last commit of each period of time, currently the month.
