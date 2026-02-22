@@ -74,7 +74,7 @@ fn get_by_language_chart(
     for (month, stats) in month_stats {
         let mut row = vec![json!(month.to_string())];
         for language in languages.iter() {
-            let lang_stats = stats.languages.get(language).unwrap_or(&0).clone();
+            let lang_stats = stats.languages.get(language).unwrap_or(&0);
             row.push(json!(lang_stats));
         }
         rows.push(json!(row));
