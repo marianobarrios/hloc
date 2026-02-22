@@ -14,6 +14,7 @@ use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+use std::process;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
@@ -31,29 +32,46 @@ struct Asset;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    #[arg(short, long)]
     base_dir: String,
 
     #[arg(short, long, action)]
     suppress_progress: bool,
 
-    #[arg(short, long, default_value = "out")]
+    #[arg(short, long, value_name = "DIRECTORY", default_value = "out")]
     output_dir: PathBuf,
 
-    #[arg(long)]
-    skip_language: Vec<tokei::LanguageType>,
+    #[arg(short('l'), long, value_name = "LANGUAGE")]
+    skip_language: Vec<String>,
 }
 
 fn main() {
     env_logger::init();
     let args = Args::parse();
+    let skip_languages = match parse_skip_language(&args.skip_language) {
+        Ok(languages) => languages,
+        Err(err) => {
+            eprintln!("Cannot parse language: {}", err);
+            process::exit(1);
+        }
+    };
     let repos = collect_repositories(&args.base_dir);
     let start = SystemTime::now();
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
-    let html_file = write_output(&args.output_dir, &stats, &args.skip_language);
+    let html_file = write_output(&args.output_dir, &stats, &skip_languages);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().expect("valid utf-8"));
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
+}
+
+fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
+    let mut parsed_languages = Vec::new();
+    for arg in string_args {
+        match tokei::LanguageType::from_name(arg) {
+            Some(language) => parsed_languages.push(language),
+            None => return Err(format!("unknown language {}", arg).to_owned()),
+        }
+    }
+    Ok(parsed_languages)
 }
 
 /// Finds all Git repositories recursively.
