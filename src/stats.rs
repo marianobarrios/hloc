@@ -19,14 +19,7 @@ pub struct HistoricStats {
 /// Statistics of a single repository at a single point in time
 #[derive(Debug, Clone)]
 pub struct CodeStats {
-    pub languages: HashMap<tokei::LanguageType, LanguageStats>,
-}
-
-/// Statistics of a single repository and language at a single point in time
-#[derive(Debug, Clone)]
-pub struct LanguageStats {
-    pub line_count: usize,
-    pub children: HashMap<tokei::LanguageType, usize>,
+    pub languages: HashMap<tokei::LanguageType, usize>,
 }
 
 impl CodeStats {
@@ -49,11 +42,10 @@ impl CodeStats {
         for (&language_type, tokei_lang) in tokei_languages {
             let mut children = HashMap::new();
             for (&language_type, reports) in tokei_lang.children.iter() {
-                let line_stats = reports.iter().map(|l| l.stats.code).sum();
+                let line_stats: usize = reports.iter().map(|l| l.stats.code).sum();
                 children.insert(language_type, line_stats);
             }
-            let language_stats = LanguageStats { line_count: tokei_lang.code, children };
-            languages.insert(language_type, language_stats);
+            languages.insert(language_type, tokei_lang.code);
         }
         Self { languages }
     }
@@ -62,23 +54,7 @@ impl CodeStats {
 impl AddAssign for CodeStats {
     fn add_assign(&mut self, rhs: Self) {
         for (lang, stats) in rhs.languages {
-            let value = self.languages.entry(lang).or_insert(LanguageStats::zero());
-            *value += stats;
-        }
-    }
-}
-
-impl LanguageStats {
-    pub fn zero() -> Self {
-        Self { line_count: 0, children: HashMap::new() }
-    }
-}
-
-impl AddAssign for LanguageStats {
-    fn add_assign(&mut self, rhs: Self) {
-        self.line_count += rhs.line_count;
-        for (lang, stats) in rhs.children {
-            let value = self.children.entry(lang).or_insert(0);
+            let value = self.languages.entry(lang).or_insert(0);
             *value += stats;
         }
     }

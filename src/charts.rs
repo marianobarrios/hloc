@@ -1,5 +1,5 @@
 use crate::Asset;
-use crate::stats::{CodeStats, GlobalStats, LanguageStats};
+use crate::stats::{CodeStats, GlobalStats};
 use crate::util::YearMonth;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -74,8 +74,8 @@ fn get_by_language_chart(
     for (month, stats) in month_stats {
         let mut row = vec![json!(month.to_string())];
         for language in languages.iter() {
-            let lang_stats = stats.languages.get(language).unwrap_or(&LanguageStats::zero()).clone();
-            row.push(json!(lang_stats.line_count));
+            let lang_stats = stats.languages.get(language).unwrap_or(&0).clone();
+            row.push(json!(lang_stats));
         }
         rows.push(json!(row));
     }
@@ -105,11 +105,11 @@ fn get_by_repo_chart(
                 .map(|(_, v)| v)
                 .cloned()
                 .unwrap_or(CodeStats::zero());
-            for (language, stats) in floor.languages.iter() {
+            for (language, line_count) in floor.languages.iter() {
                 if skip_languages.contains(language) {
                     continue;
                 }
-                *month_stats.get_mut(&month).unwrap().get_mut(repo).unwrap() += stats.line_count;
+                *month_stats.get_mut(&month).unwrap().get_mut(repo).unwrap() += line_count;
             }
         }
     }
@@ -165,12 +165,11 @@ fn get_all_languages(
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit = historic_stats.snapshots.values().last().unwrap();
-        for (language, lang_stats) in last_commit.languages.iter() {
+        for (language, line_count) in last_commit.languages.iter() {
             if skip_languages.contains(language) {
                 continue;
             }
-            let count = language_map.entry(*language).or_insert(0);
-            *count += lang_stats.line_count;
+            *language_map.entry(*language).or_insert(0) += line_count;
         }
     }
     let mut languages: Vec<_> = language_map.keys().cloned().collect();
@@ -183,9 +182,8 @@ fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<String> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in global_stats.repositories.iter() {
         let last_commit = historic_stats.snapshots.values().last().unwrap();
-        for lang_stats in last_commit.languages.values() {
-            let count = repo_map.entry(repo.clone()).or_insert(0);
-            *count += lang_stats.line_count;
+        for line_count in last_commit.languages.values() {
+            *repo_map.entry(repo.clone()).or_insert(0) += line_count;
         }
     }
     let mut repos: Vec<_> = repo_map.keys().cloned().collect();
