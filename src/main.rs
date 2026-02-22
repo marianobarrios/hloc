@@ -18,11 +18,11 @@ use std::process;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
-use util::{YearMonth, datetime_from_epoch_seconds};
-use walkdir::WalkDir;
 use util::MutexExt;
 use util::OsStrExt;
 use util::PathExt;
+use util::{YearMonth, datetime_from_epoch_seconds};
+use walkdir::WalkDir;
 
 #[derive(Embed)]
 #[folder = "templates"]
@@ -211,22 +211,21 @@ fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
     let total = samples.len();
     for (i, (&date, commit)) in samples.iter().enumerate() {
         debug!("checking out tree for commit {:?}", commit.id());
-
-        match repo.checkout_tree(commit.tree().unwrap().as_object(), Some(CheckoutBuilder::new().force())) {
-            Ok(_) => (),
-            Err(err) if err.code() == ErrorCode::NotFound => {
-                warn!("tree not found for commit {}, skipping", commit.id())
-            }
-            Err(err) => panic!("{err}"),
-        };
-
-        // count the lines for this commit
-        let stats = CodeStats::generate(repo.workdir().unwrap());
-
-        snapshots.insert(date, stats);
-
+        snapshots.insert(date, get_status_from_commit(repo, commit));
         let progress = (i + 1) as f32 / total as f32;
         update_reporter(progress, date);
     }
     HistoricStats { snapshots }
+}
+
+fn get_status_from_commit(repo: &git2::Repository, commit: &Commit) -> CodeStats {
+    match repo.checkout_tree(commit.tree().unwrap().as_object(), Some(CheckoutBuilder::new().force())) {
+        Ok(_) => (),
+        Err(err) if err.code() == ErrorCode::NotFound => {
+            warn!("tree not found for commit {}, skipping", commit.id())
+        }
+        Err(err) => panic!("{err}"),
+    };
+    // count the lines for this commit
+    CodeStats::generate(repo.workdir().unwrap())
 }
