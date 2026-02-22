@@ -1,5 +1,5 @@
-use std::ffi::OsStr;
 use chrono::{DateTime, Datelike, Utc};
+use std::ffi::OsStr;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -28,7 +28,7 @@ pub fn datetime_from_epoch_seconds(seconds: i64) -> DateTime<Utc> {
     epoch + Duration::from_secs(seconds as u64)
 }
 
-pub trait MutexExt<T>  {
+pub trait MutexExt<T> {
     fn lock_or_panic(&self) -> MutexGuard<'_, T>;
 }
 
@@ -38,7 +38,7 @@ impl<T> MutexExt<T> for Mutex<T> {
     }
 }
 
-pub trait OsStrExt  {
+pub trait OsStrExt {
     fn to_str_or_panic(&self) -> &str;
 }
 
@@ -48,7 +48,7 @@ impl OsStrExt for OsStr {
     }
 }
 
-pub trait PathExt  {
+pub trait PathExt {
     fn to_str_or_panic(&self) -> &str;
 }
 
