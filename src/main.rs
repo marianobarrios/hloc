@@ -107,10 +107,7 @@ fn get_historic_stats_in_repos(
             let step = counter.fetch_add(1, Ordering::Relaxed);
             let counter = style(format!("[{step1:max_step_width$}/{total_steps}]", step1 = step + 1)).dim();
             let time = style(format!("{time:7.2}s", time = start.elapsed().unwrap().as_secs_f32())).blue();
-            bar.println(format!(
-                "{check} {display_name:45} {counter} {time}",
-                check = style("✔").green(),
-            ));
+            bar.println(format!("{check} {display_name:45} {counter} {time}", check = style("✔").green(),));
         }
         let mut repositories = repositories.lock().unwrap();
         repositories.insert(display_name, stats);
@@ -137,10 +134,7 @@ fn create_progress_bar(multi_progress: &MultiProgress, display_name: &str) -> Pr
     bar
 }
 
-fn get_historic_stats<F: Fn(f32, YearMonth)>(
-    git_repo_path: &Path,
-    update_reporter: F,
-) -> HistoricStats {
+fn get_historic_stats<F: Fn(f32, YearMonth)>(git_repo_path: &Path, update_reporter: F) -> HistoricStats {
     // Using a temporary directory for cloning the Git repository
     // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
     // needed because the library used for line counting, tokei, needs it.

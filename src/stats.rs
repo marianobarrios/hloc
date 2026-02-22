@@ -29,15 +29,6 @@ pub struct LanguageStats {
     pub children: HashMap<tokei::LanguageType, usize>,
 }
 
-impl AddAssign for HistoricStats {
-    fn add_assign(&mut self, rhs: Self) {
-        for (month, stats) in rhs.snapshots {
-            let value = self.snapshots.entry(month).or_insert(CodeStats::zero());
-            *value += stats;
-        }
-    }
-}
-
 impl CodeStats {
     pub fn zero() -> Self {
         Self { languages: HashMap::new() }
