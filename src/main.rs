@@ -49,7 +49,7 @@ fn main() {
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
     let html_file = write_output(&args.output_dir, &stats, &args.skip_language);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
-    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().unwrap());
+    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().expect("valid utf-8"));
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
 }
 
@@ -117,9 +117,9 @@ fn get_historic_stats_in_repos(
 
 fn display_name(base_path: &str, path: &PathBuf) -> String {
     if path == base_path {
-        path.file_name().unwrap().to_str().unwrap().to_owned()
+        path.file_name().unwrap().to_str().expect("valid utf-8").to_owned()
     } else {
-        path.strip_prefix(base_path).unwrap().to_str().unwrap().to_owned()
+        path.strip_prefix(base_path).unwrap().to_str().expect("valid utf-8").to_owned()
     }
 }
 
@@ -146,8 +146,8 @@ fn get_historic_stats<F: Fn(f32, YearMonth)>(git_repo_path: &Path, update_report
 
     // cloning the repository (as opposed to something else like using a worktree or operating
     // directly) allows for 100% not touching it, even working without write permissions.
-    debug!("cloning repo in {}", tmp_dir.path().to_str().unwrap());
-    let repo = git2::Repository::clone(git_repo_path.to_str().unwrap(), tmp_dir.path()).unwrap();
+    debug!("cloning repo in {}", tmp_dir.path().to_str().expect("valid utf-8"));
+    let repo = git2::Repository::clone(git_repo_path.to_str().expect("valid utf-8"), tmp_dir.path()).unwrap();
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
     // code, taking the last commit of each period of time, currently the month.
