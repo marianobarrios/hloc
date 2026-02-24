@@ -59,7 +59,7 @@ fn main() {
     let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress, &skip_languages);
     let html_file = write_output(&args.output_dir, &stats);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
-    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().expect("valid utf-8"));
+    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
 }
 
@@ -108,12 +108,18 @@ fn get_historic_stats_in_repos(
 ) -> GlobalStats {
     let repositories = Mutex::new(HashMap::new());
     let multi_progress = MultiProgress::new();
-    let counter = AtomicUsize::new(0);
+    let counter = AtomicUsize::new(1);
     let total_steps = repo_paths.len();
+
+    // pre-calculate all display names to know in advance which is the longest one
+    let display_names: HashMap<_, _> =
+        repo_paths.iter().map(|p| (p.as_path(), display_name(base_path, p))).collect();
+    let display_name_len = display_names.values().map(|s| s.len()).max().unwrap();
+
     let max_step_width = format!("{}", total_steps).len();
     repo_paths.par_iter().for_each(|path| {
-        let display_name = display_name(base_path, path);
-        let bar = create_progress_bar(&multi_progress, &display_name);
+        let display_name = &display_names[path.as_path()];
+        let bar = create_progress_bar(&multi_progress, &display_name, display_name_len);
         let start = SystemTime::now();
         let stats = get_historic_stats(path, skip_languages, |perc, msg| {
             if !suppress_progress {
@@ -124,13 +130,16 @@ fn get_historic_stats_in_repos(
         if !suppress_progress {
             bar.finish_and_clear();
             let step = counter.fetch_add(1, Ordering::Relaxed);
-            let counter = style(format!("[{step1:max_step_width$}/{total_steps}]", step1 = step + 1)).dim();
-            let time = style(format!("{time:7.2}s", time = start.elapsed().unwrap().as_secs_f32())).blue();
-            bar.println(format!("{check} {display_name:45} {counter} {time}", check = style("✔").green(),));
+            let counter = style(format!("[{step:max_step_width$}/{total_steps}]")).dim();
+            let time = style(format!("{time:7.3}s", time = start.elapsed().unwrap().as_secs_f32())).blue();
+            bar.println(format!(
+                "{check} {display_name:display_name_len$} {counter} {time}",
+                check = style("✔").green(),
+            ));
         }
 
         let mut repositories = repositories.lock_or_panic();
-        repositories.insert(display_name, stats);
+        repositories.insert(display_name.clone(), stats);
     });
     let repositories = repositories.lock_or_panic();
     GlobalStats { repositories: repositories.clone() }
@@ -144,14 +153,16 @@ fn display_name(base_path: &str, path: &PathBuf) -> String {
     }
 }
 
-fn create_progress_bar(multi_progress: &MultiProgress, display_name: &str) -> ProgressBar {
+fn create_progress_bar(
+    multi_progress: &MultiProgress,
+    display_name: &str,
+    display_name_len: usize,
+) -> ProgressBar {
     let bar = multi_progress.add(ProgressBar::new(100));
     bar.set_prefix(display_name.to_owned());
-    bar.set_style(
-        ProgressStyle::with_template("{spinner:.green} {prefix:45} [{bar:45.cyan/blue}] {msg}")
-            .unwrap()
-            .progress_chars("=> "),
-    );
+    let template = "{spinner:.green} {prefix:PREFIX_LENGTH} [{bar:40.cyan/blue}] {msg}"
+        .replace("PREFIX_LENGTH", &display_name_len.to_string());
+    bar.set_style(ProgressStyle::with_template(&template).unwrap().progress_chars("=> "));
     bar
 }
 
@@ -175,7 +186,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
 
-    // Only traverse the default branch
+    // Only traverse the original branch
     revwalk.simplify_first_parent().unwrap();
 
     // The default format is reversed chronological, reversing again for pure chronological
@@ -231,8 +242,8 @@ fn get_status_from_commit(
                 count_lines_in_file(entry.name().unwrap(), blob.content(), skip_languages)
             });
 
-            if let Some((language_type, lines)) = *result {
-                *languages.entry(language_type).or_insert(0) += lines;
+            if let Some((language, lines)) = *result {
+                *languages.entry(language).or_insert(0) += lines;
             }
         }
         TreeWalkResult::Ok
