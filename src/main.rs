@@ -57,8 +57,8 @@ fn main() {
     };
     let repos = collect_repositories(&args.base_dir);
     let start = SystemTime::now();
-    let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress);
-    let html_file = write_output(&args.output_dir, &stats, &skip_languages);
+    let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress, &skip_languages);
+    let html_file = write_output(&args.output_dir, &stats);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().unwrap().to_str().expect("valid utf-8"));
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
@@ -105,6 +105,7 @@ fn get_historic_stats_in_repos(
     base_path: &str,
     repo_paths: &[PathBuf],
     suppress_progress: bool,
+    skip_languages: &[tokei::LanguageType],
 ) -> GlobalStats {
     let repositories = Mutex::new(HashMap::new());
     let multi_progress = MultiProgress::new();
@@ -118,7 +119,7 @@ fn get_historic_stats_in_repos(
             bar.set_message("cloning");
         }
         let start = SystemTime::now();
-        let stats = get_historic_stats(path, |perc, month| {
+        let stats = get_historic_stats(path, skip_languages, |perc, month| {
             if !suppress_progress {
                 bar.set_position((perc * 100.0) as u64);
                 bar.set_message(format!("counting {}", month));
@@ -158,7 +159,11 @@ fn create_progress_bar(multi_progress: &MultiProgress, display_name: &str) -> Pr
     bar
 }
 
-fn get_historic_stats<F: Fn(f32, YearMonth)>(git_repo_path: &Path, update_reporter: F) -> HistoricStats {
+fn get_historic_stats<F: Fn(f32, YearMonth)>(
+    git_repo_path: &Path,
+    skip_languages: &[tokei::LanguageType],
+    update_reporter: F,
+) -> HistoricStats {
     // Using a temporary directory for cloning the Git repository
     // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
     // needed because the library used for line counting, tokei, needs it.
@@ -178,7 +183,7 @@ fn get_historic_stats<F: Fn(f32, YearMonth)>(git_repo_path: &Path, update_report
     let samples: BTreeMap<YearMonth, Commit> = sample_commits(&repo);
 
     // actually count the lines
-    get_stats_from_samples(&repo, &samples, update_reporter)
+    get_stats_from_samples(&repo, &samples, skip_languages, update_reporter)
 }
 
 fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
@@ -206,6 +211,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
 fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
     repo: &git2::Repository,
     samples: &BTreeMap<YearMonth, Commit>,
+    skip_languages: &[tokei::LanguageType],
     update_reporter: F,
 ) -> HistoricStats {
     let mut snapshots = BTreeMap::new();
@@ -217,7 +223,7 @@ fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
 
     for (i, (&date, commit)) in samples.iter().enumerate() {
         debug!("checking out tree for commit {:?}", commit.id());
-        snapshots.insert(date, get_status_from_commit(repo, commit, &mut cache));
+        snapshots.insert(date, get_status_from_commit(repo, commit, skip_languages, &mut cache));
         let progress = (i + 1) as f32 / total as f32;
         update_reporter(progress, date);
     }
@@ -227,6 +233,7 @@ fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
 fn get_status_from_commit(
     repo: &git2::Repository,
     commit: &Commit,
+    skip_languages: &[tokei::LanguageType],
     cache: &mut HashMap<Oid, Option<(tokei::LanguageType, usize)>>,
 ) -> CodeStats {
     let tree = commit.tree().unwrap();
@@ -235,9 +242,9 @@ fn get_status_from_commit(
         // only process files, not other object types
         if let Some(ObjectType::Blob) = entry.kind() {
             let blob = repo.find_blob(entry.id()).unwrap();
-            let result = cache
-                .entry(blob.id())
-                .or_insert_with(|| count_lines_in_file(entry.name().unwrap(), blob.content()));
+            let result = cache.entry(blob.id()).or_insert_with(|| {
+                count_lines_in_file(entry.name().unwrap(), blob.content(), skip_languages)
+            });
 
             if let Some((language_type, lines)) = *result {
                 *languages.entry(language_type).or_insert(0) += lines;
@@ -249,10 +256,16 @@ fn get_status_from_commit(
     CodeStats { languages }
 }
 
-fn count_lines_in_file(file_name: &str, file_content: &[u8]) -> Option<(tokei::LanguageType, usize)> {
-    if let Some(language_type) = detect_language(file_name, file_content) {
-        let stats = language_type.parse_from_slice(file_content, &tokei::Config::default());
-        Some((language_type, stats.code))
+fn count_lines_in_file(
+    file_name: &str,
+    file_content: &[u8],
+    skip_languages: &[tokei::LanguageType],
+) -> Option<(tokei::LanguageType, usize)> {
+    if let Some(language) = detect_language(file_name, file_content)
+        && !skip_languages.contains(&language)
+    {
+        let stats = language.parse_from_slice(file_content, &tokei::Config::default());
+        Some((language, stats.code))
     } else {
         None
     }
