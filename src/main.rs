@@ -1,14 +1,15 @@
 mod charts;
+mod languages;
 mod stats;
 mod util;
 
+use crate::languages::detect_language;
 use charts::write_output;
 use clap::Parser;
 use console::style;
-use git2::build::CheckoutBuilder;
-use git2::{Commit, ErrorCode, Sort};
+use git2::{Commit, ObjectType, Oid, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use log::{debug, warn};
+use log::debug;
 use rayon::prelude::*;
 use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
@@ -209,23 +210,50 @@ fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
 ) -> HistoricStats {
     let mut snapshots = BTreeMap::new();
     let total = samples.len();
+
+    // relying on the fact that Git oid are stable across commits if the file is identical
+    // to avoid counting lines in the same file more than once
+    let mut cache: HashMap<Oid, Option<(tokei::LanguageType, usize)>> = HashMap::new();
+
     for (i, (&date, commit)) in samples.iter().enumerate() {
         debug!("checking out tree for commit {:?}", commit.id());
-        snapshots.insert(date, get_status_from_commit(repo, commit));
+        snapshots.insert(date, get_status_from_commit(repo, commit, &mut cache));
         let progress = (i + 1) as f32 / total as f32;
         update_reporter(progress, date);
     }
     HistoricStats { snapshots }
 }
 
-fn get_status_from_commit(repo: &git2::Repository, commit: &Commit) -> CodeStats {
-    match repo.checkout_tree(commit.tree().unwrap().as_object(), Some(CheckoutBuilder::new().force())) {
-        Ok(_) => (),
-        Err(err) if err.code() == ErrorCode::NotFound => {
-            warn!("tree not found for commit {}, skipping", commit.id())
+fn get_status_from_commit(
+    repo: &git2::Repository,
+    commit: &Commit,
+    cache: &mut HashMap<Oid, Option<(tokei::LanguageType, usize)>>,
+) -> CodeStats {
+    let tree = commit.tree().unwrap();
+    let mut languages = HashMap::new();
+    tree.walk(TreeWalkMode::PreOrder, |_, entry| {
+        // only process files, not other object types
+        if let Some(ObjectType::Blob) = entry.kind() {
+            let blob = repo.find_blob(entry.id()).unwrap();
+            let result = cache
+                .entry(blob.id())
+                .or_insert_with(|| count_lines_in_file(entry.name().unwrap(), blob.content()));
+
+            if let Some((language_type, lines)) = *result {
+                *languages.entry(language_type).or_insert(0) += lines;
+            }
         }
-        Err(err) => panic!("{err}"),
-    };
-    // count the lines for this commit
-    CodeStats::generate(repo.workdir().unwrap())
+        TreeWalkResult::Ok
+    })
+    .unwrap();
+    CodeStats { languages }
+}
+
+fn count_lines_in_file(file_name: &str, file_content: &[u8]) -> Option<(tokei::LanguageType, usize)> {
+    if let Some(language_type) = detect_language(file_name, file_content) {
+        let stats = language_type.parse_from_slice(file_content, &tokei::Config::default());
+        Some((language_type, stats.code))
+    } else {
+        None
+    }
 }
