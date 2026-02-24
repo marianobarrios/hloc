@@ -9,7 +9,6 @@ use clap::Parser;
 use console::style;
 use git2::{Commit, ObjectType, Oid, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use log::debug;
 use rayon::prelude::*;
 use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
@@ -115,14 +114,11 @@ fn get_historic_stats_in_repos(
     repo_paths.par_iter().for_each(|path| {
         let display_name = display_name(base_path, path);
         let bar = create_progress_bar(&multi_progress, &display_name);
-        if !suppress_progress {
-            bar.set_message("cloning");
-        }
         let start = SystemTime::now();
-        let stats = get_historic_stats(path, skip_languages, |perc, month| {
+        let stats = get_historic_stats(path, skip_languages, |perc, msg| {
             if !suppress_progress {
                 bar.set_position((perc * 100.0) as u64);
-                bar.set_message(format!("counting {}", month));
+                bar.set_message(msg.to_owned());
             }
         });
         if !suppress_progress {
@@ -159,24 +155,13 @@ fn create_progress_bar(multi_progress: &MultiProgress, display_name: &str) -> Pr
     bar
 }
 
-fn get_historic_stats<F: Fn(f32, YearMonth)>(
+fn get_historic_stats<F: Fn(f32, &str)>(
     git_repo_path: &Path,
     skip_languages: &[tokei::LanguageType],
     update_reporter: F,
 ) -> HistoricStats {
-    // Using a temporary directory for cloning the Git repository
-    // A named directory (as opposed to an unnamed one or a simply fetching blobs from Git) is
-    // needed because the library used for line counting, tokei, needs it.
-    // `tempfile` will remove the directory when it's dropped at the end of this function.
-    // An abnormal program termination will rely on the cleaning mechanism of the operating system.
-    // Portability note: `tempfile` uses `tempfs` in Linux, which lives in memory. In MacOS it uses
-    // the normal disk, which may be slightly slower but save some memory.
-    let tmp_dir = tempfile::tempdir().unwrap();
-
-    // cloning the repository (as opposed to something else like using a worktree or operating
-    // directly) allows for 100% not touching it, even working without write permissions.
-    debug!("cloning repo in {}", tmp_dir.path().to_str_or_panic());
-    let repo = git2::Repository::clone(git_repo_path.to_str_or_panic(), tmp_dir.path()).unwrap();
+    update_reporter(0.0, "preparing");
+    let repo = git2::Repository::open(git_repo_path.to_str_or_panic()).unwrap();
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
     // code, taking the last commit of each period of time, currently the month.
@@ -195,6 +180,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
 
     // The default format is reversed chronological, reversing again for pure chronological
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
+
     revwalk.push_head().unwrap();
     for oid in revwalk {
         let oid = oid.unwrap();
@@ -208,7 +194,7 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     samples
 }
 
-fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
+fn get_stats_from_samples<F: Fn(f32, &str)>(
     repo: &git2::Repository,
     samples: &BTreeMap<YearMonth, Commit>,
     skip_languages: &[tokei::LanguageType],
@@ -222,10 +208,9 @@ fn get_stats_from_samples<F: Fn(f32, YearMonth)>(
     let mut cache: HashMap<Oid, Option<(tokei::LanguageType, usize)>> = HashMap::new();
 
     for (i, (&date, commit)) in samples.iter().enumerate() {
-        debug!("checking out tree for commit {:?}", commit.id());
         snapshots.insert(date, get_status_from_commit(repo, commit, skip_languages, &mut cache));
         let progress = (i + 1) as f32 / total as f32;
-        update_reporter(progress, date);
+        update_reporter(progress, &format!("counting {}", date));
     }
     HistoricStats { snapshots }
 }
