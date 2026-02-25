@@ -1,8 +1,10 @@
 mod charts;
+mod config;
 mod languages;
 mod stats;
 mod util;
 
+use crate::config::Config;
 use crate::languages::detect_language;
 use charts::write_output;
 use clap::Parser;
@@ -14,10 +16,10 @@ use rust_embed::Embed;
 use stats::{CodeStats, GlobalStats, HistoricStats};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::SystemTime;
+use std::{fs, process};
 use util::MutexExt;
 use util::OsStrExt;
 use util::PathExt;
@@ -28,8 +30,24 @@ use walkdir::WalkDir;
 #[folder = "templates"]
 struct Asset;
 
-/// Simple program to greet a person
-#[derive(Parser, Debug)]
+#[derive(Debug, Clone)]
+struct RepoParsedConfig {
+    ignore: bool,
+    skip_languages: Vec<tokei::LanguageType>,
+}
+
+impl RepoParsedConfig {
+    fn default() -> Self {
+        Self { ignore: false, skip_languages: Vec::new() }
+    }
+
+    pub fn merge(mut self, other: &Self) -> Self {
+        self.skip_languages.extend_from_slice(&other.skip_languages);
+        Self { ignore: self.ignore || other.ignore, skip_languages: self.skip_languages }
+    }
+}
+
+#[derive(Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
     base_dir: String,
@@ -40,38 +58,48 @@ struct Args {
     #[arg(short, long, value_name = "DIRECTORY", default_value = "out")]
     output_dir: PathBuf,
 
-    #[arg(short('l'), long, value_name = "LANGUAGE")]
-    skip_language: Vec<String>,
+    #[arg(short, long, value_name = "CONFIG_FILE")]
+    config: Option<PathBuf>,
 }
 
 fn main() {
     env_logger::init();
     let args = Args::parse();
-    let skip_languages = match parse_skip_language(&args.skip_language) {
-        Ok(languages) => languages,
-        Err(err) => {
-            eprintln!("Cannot parse language: {}", err);
-            process::exit(1);
+
+    let parsed_config = match args.config {
+        Some(config_file) => {
+            let file_contents = fs::read_to_string(&config_file).unwrap();
+            parse_config(&file_contents)
         }
+        None => HashMap::new(),
     };
     let repos = collect_repositories(&args.base_dir);
+    let repos_with_config = apply_config(&repos, &parsed_config);
+
     let start = SystemTime::now();
-    let stats = get_historic_stats_in_repos(&args.base_dir, &repos, args.suppress_progress, &skip_languages);
+    let stats = get_historic_stats_in_repos(&args.base_dir, &repos_with_config, args.suppress_progress);
     let html_file = write_output(&args.output_dir, &stats);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().unwrap().to_str_or_panic());
-    eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos.len());
+    eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
 }
 
-fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
-    let mut parsed_languages = Vec::new();
-    for arg in string_args {
-        match tokei::LanguageType::from_name(arg) {
-            Some(language) => parsed_languages.push(language),
-            None => return Err(format!("unknown language {}", arg).to_owned()),
-        }
+fn parse_config(file_contents: &str) -> HashMap<glob::Pattern, RepoParsedConfig> {
+    let config: Config = serde_yaml_ng::from_str(file_contents).unwrap();
+
+    let mut parsed_config: HashMap<glob::Pattern, RepoParsedConfig> = HashMap::new();
+    for (unparsed_patter, repo_config) in config.repositories.into_iter() {
+        let pattern = glob::Pattern::new(&unparsed_patter).unwrap();
+        let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
+            Ok(languages) => languages,
+            Err(err) => {
+                eprintln!("Cannot parse language: {}", err);
+                process::exit(1);
+            }
+        };
+        parsed_config.insert(pattern, RepoParsedConfig { ignore: repo_config.ignore, skip_languages });
     }
-    Ok(parsed_languages)
+    parsed_config
 }
 
 /// Finds all Git repositories recursively.
@@ -92,6 +120,33 @@ fn collect_repositories<P: AsRef<Path>>(path: P) -> Vec<PathBuf> {
     repos
 }
 
+fn apply_config(
+    repos: &[PathBuf],
+    config: &HashMap<glob::Pattern, RepoParsedConfig>,
+) -> HashMap<PathBuf, RepoParsedConfig> {
+    repos
+        .iter()
+        .map(|repo| {
+            let (_, configs): (Vec<_>, Vec<_>) =
+                config.iter().filter(|&(pattern, _)| pattern.matches_path(repo.as_path())).unzip();
+            let merged_config =
+                configs.into_iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge);
+            (repo.to_owned(), merged_config)
+        })
+        .collect()
+}
+
+fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
+    let mut parsed_languages = Vec::new();
+    for arg in string_args {
+        match tokei::LanguageType::from_name(arg) {
+            Some(language) => parsed_languages.push(language),
+            None => return Err(format!("unknown language {}", arg).to_owned()),
+        }
+    }
+    Ok(parsed_languages)
+}
+
 /// Checks whether the supplied path is a Git repo with at least one commit
 fn is_git_repo<P: AsRef<Path>>(path: P) -> bool {
     match git2::Repository::open(path) {
@@ -102,26 +157,28 @@ fn is_git_repo<P: AsRef<Path>>(path: P) -> bool {
 
 fn get_historic_stats_in_repos(
     base_path: &str,
-    repo_paths: &[PathBuf],
+    repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
     suppress_progress: bool,
-    skip_languages: &[tokei::LanguageType],
 ) -> GlobalStats {
-    let repositories = Mutex::new(HashMap::new());
-    let multi_progress = MultiProgress::new();
-    let counter = AtomicUsize::new(1);
-    let total_steps = repo_paths.len();
+    let filtered_repos: HashMap<_, _> =
+        repos_with_config.iter().filter(|&(_, config)| !config.ignore).collect();
+
+    let total_steps = filtered_repos.len();
+    let max_step_width = format!("{}", total_steps).len();
 
     // pre-calculate all display names to know in advance which is the longest one
     let display_names: HashMap<_, _> =
-        repo_paths.iter().map(|p| (p.as_path(), display_name(base_path, p))).collect();
+        filtered_repos.keys().map(|p| (p, display_name(base_path, p))).collect();
     let display_name_len = display_names.values().map(|s| s.len()).max().unwrap();
 
-    let max_step_width = format!("{}", total_steps).len();
-    repo_paths.par_iter().for_each(|path| {
-        let display_name = &display_names[path.as_path()];
-        let bar = create_progress_bar(&multi_progress, &display_name, display_name_len);
+    let multi_progress = MultiProgress::new();
+    let counter = AtomicUsize::new(1);
+    let total_stats = Mutex::new(HashMap::new());
+    filtered_repos.par_iter().for_each(|(&path, &config)| {
+        let display_name = &display_names[&path];
+        let bar = create_progress_bar(&multi_progress, display_name, display_name_len);
         let start = SystemTime::now();
-        let stats = get_historic_stats(path, skip_languages, |perc, msg| {
+        let stats = get_historic_stats(path, &config.skip_languages, |perc, msg| {
             if !suppress_progress {
                 bar.set_position((perc * 100.0) as u64);
                 bar.set_message(msg.to_owned());
@@ -138,14 +195,14 @@ fn get_historic_stats_in_repos(
             ));
         }
 
-        let mut repositories = repositories.lock_or_panic();
-        repositories.insert(display_name.clone(), stats);
+        let mut total_stats = total_stats.lock_or_panic();
+        total_stats.insert(display_name.clone(), stats);
     });
-    let repositories = repositories.lock_or_panic();
-    GlobalStats { repositories: repositories.clone() }
+    let total_stats = total_stats.lock_or_panic();
+    GlobalStats { repositories: total_stats.clone() }
 }
 
-fn display_name(base_path: &str, path: &PathBuf) -> String {
+fn display_name(base_path: &str, path: &Path) -> String {
     if path == base_path {
         path.file_name().unwrap().to_str_or_panic().to_owned()
     } else {

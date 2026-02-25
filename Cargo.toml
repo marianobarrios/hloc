@@ -17,3 +17,6 @@ env_logger = "0.11"
 rust-embed="8.11"
 rayon = "1.11"
 indicatif = { version = "0.18", features = ["rayon"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml_ng = "0.10"
+glob = "0.3"
