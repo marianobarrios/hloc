@@ -1,33 +1,72 @@
-function drawCharts(by_repo_data, by_lang_data) {
-    drawByRepoChart(by_repo_data);
-    drawByLangChart(by_lang_data);
-}
+const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+        title: {
+            display: true,
+            text: (ctx) => 'Lines of code – by repositoriry'
+        },
+        tooltip: {
+            mode: 'point'
+        },
+        legend: {
+            display: true,
+            position:"right",
+            labels: {
+                font: {
+                    size: 11,
+                }
+            },
+            reverse: true,
+            maxWidth: 260,
+        }
+    },
+    interaction: {
+        mode: 'nearest',
+        axis: 'x',
+        intersect: false
+    },
+    scales: {
+        x: {
+            title: {
+                display: true,
+                text: 'Month'
+            }
+        },
+        y: {
+            stacked: true,
+            title: {
+                display: true,
+                text: 'Lines'
+            }
+        }
+    },
+    elements: {
+        point: {
+            radius: 1,
+            hoverRadius: 2,
+        }
+    }
+};
 
-function drawByRepoChart(raw_data) {
-    let data = google.visualization.arrayToDataTable(raw_data);
-    let options = {
-        isStacked: true,
-        title: 'Lines of code – by repository',
-        hAxis: {title: 'Month', titleTextStyle: {color: '#333'}},
-        vAxis: {minValue: 0},
-        lineWidth: 1,
-    };
-    let chart = new google.visualization.AreaChart(document.getElementById('by_repo_div'));
-    chart.draw(data, options);
-}
+const by_repo_div = document.getElementById('by_repo_div');
+const by_lang_div = document.getElementById('by_lang_div');
 
-function drawByLangChart(raw_data) {
-    let data = google.visualization.arrayToDataTable(raw_data);
-    let options = {
-        isStacked: true,
-        title: 'Line of code – by language',
-        hAxis: {title: 'Month', titleTextStyle: {color: '#333'}},
-        vAxis: {minValue: 0},
-        lineWidth: 1,
-    };
-    let chart = new google.visualization.AreaChart(document.getElementById('by_lang_div'));
-    chart.draw(data, options);
-}
+new Chart(by_repo_div, { type: 'line', data: by_repo_data, options: options });
+new Chart(by_lang_div, { type: 'line', data: by_lang_data, options: options });
 
-google.charts.load('current', {'packages':['corechart']});
-google.charts.setOnLoadCallback(() => drawCharts(by_repo_data, by_lang_data));
+// initial state
+by_repo_div.style.display = 'block';
+by_lang_div.style.display = 'none';
+
+document.getElementById('by_repo').addEventListener('click', function(event) {
+    event.preventDefault(); // prevents the page from jumping to the top
+    by_repo_div.style.display = 'block';
+    by_lang_div.style.display = 'none';
+});
+
+document.getElementById('by_lang').addEventListener('click', function(event) {
+    event.preventDefault(); // prevents the page from jumping to the top
+    by_repo_div.style.display = 'none';
+    by_lang_div.style.display = 'block';
+});
