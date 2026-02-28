@@ -179,15 +179,19 @@ fn get_historic_stats_in_repos(
     let total_stats = Mutex::new(HashMap::new());
     filtered_repos.par_iter().for_each(|(&path, &config)| {
         let display_name = &display_names[&path];
-        let bar = create_progress_bar(&multi_progress, display_name, display_name_len);
+        let bar = if !suppress_progress {
+            Some(create_progress_bar(&multi_progress, display_name, display_name_len))
+        } else {
+            None
+        };
         let start = SystemTime::now();
         let stats = get_historic_stats(path, &config.skip_languages, |perc, msg| {
-            if !suppress_progress {
+            if let Some(bar) = &bar {
                 bar.set_position((perc * 100.0) as u64);
                 bar.set_message(msg.to_owned());
             }
         });
-        if !suppress_progress {
+        if let Some(bar) = &bar {
             bar.finish_and_clear();
             let step = counter.fetch_add(1, Ordering::Relaxed);
             let counter = style(format!("[{step:max_step_width$}/{total_steps}]")).dim();
