@@ -1,11 +1,9 @@
+const autocolors = window['chartjs-plugin-autocolors'];
+
 const options = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-        title: {
-            display: true,
-            text: (ctx) => 'Lines of code – by repositoriry'
-        },
         tooltip: {
             mode: 'point'
         },
@@ -19,6 +17,15 @@ const options = {
             },
             reverse: true,
             maxWidth: 260,
+        },
+        autocolors: {
+            customize(context) {
+                const colors = context.colors;
+                return {
+                    background: Chart.helpers.color(colors.background).lighten(0.5).alpha(1).rgbString(),
+                    border: colors.border
+                };
+            }
         }
     },
     interaction: {
@@ -51,6 +58,8 @@ const options = {
 
 const by_repo_div = document.getElementById('by_repo_div');
 const by_lang_div = document.getElementById('by_lang_div');
+
+Chart.register(autocolors);
 
 new Chart(by_repo_div, { type: 'line', data: by_repo_data, options: options });
 new Chart(by_lang_div, { type: 'line', data: by_lang_data, options: options });
