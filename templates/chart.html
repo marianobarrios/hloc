@@ -1,13 +1,19 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
     <head>
         <meta charset="utf-8">
-        <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.js"></script>
         <script type="text/javascript" src="data.js"></script>
-        <script type="text/javascript" src="chart.js"></script>
+        <link rel="stylesheet" href="chart.css">
+        <title>Lines of code</title>
     </head>
     <body>
-        <div id="by_repo_div" style="width: 100%; height: 500px;"></div>
-        <div id="by_lang_div" style="width: 100%; height: 500px;"></div>
+        <div class="selectors">
+            <a class="chart-selector" id="by_repo">By repository</a>
+            <a class="chart-selector" id="by_lang">By language</a>
+        </div>
+        <canvas id="by_repo_div"></canvas>
+        <canvas id="by_lang_div"></canvas>
+        <script type="text/javascript" src="chart.js"></script>
     </body>
 </html>

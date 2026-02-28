@@ -77,8 +77,11 @@ fn main() {
     let repos_with_config = apply_config(&repos, &parsed_config);
 
     let start = SystemTime::now();
-    let stats = get_historic_stats_in_repos(&args.base_dir, &repos_with_config, args.suppress_progress);
-    let html_file = write_output(&args.output_dir, &stats);
+    let mut stats = get_historic_stats_in_repos(&args.base_dir, &repos_with_config, args.suppress_progress);
+
+    let (min_month, max_month) = fill_month_gaps(&mut stats);
+
+    let html_file = write_output(&args.output_dir, &stats, min_month, max_month);
     let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().unwrap().to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
@@ -322,4 +325,29 @@ fn count_lines_in_file(
     } else {
         None
     }
+}
+
+fn fill_month_gaps(stats: &mut GlobalStats) -> (YearMonth, YearMonth) {
+    let (min_month, max_month) = get_extreme_months(stats);
+    for historic_stats in stats.repositories.values_mut() {
+        for month in util::gen_month_range(min_month, max_month) {
+            let floor = historic_stats
+                .snapshots
+                .range(..=month)
+                .last()
+                .map(|(_, v)| v)
+                .cloned()
+                .unwrap_or(CodeStats::zero());
+            historic_stats.snapshots.entry(month).or_insert(floor);
+        }
+    }
+    (min_month, max_month)
+}
+
+fn get_extreme_months(global_stats: &GlobalStats) -> (YearMonth, YearMonth) {
+    let months: Vec<_> =
+        global_stats.repositories.values().flat_map(|s| s.snapshots.iter()).map(|s| s.0).cloned().collect();
+    let min = months.iter().min().unwrap();
+    let max = months.iter().max().unwrap();
+    (*min, *max)
 }

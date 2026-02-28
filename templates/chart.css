@@ -1,0 +1,38 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 90vh;
+    margin: 0;
+}
+
+.selectors {
+    display: flex;
+    flex-direction: row;
+    padding: 0.5rem;
+    border-bottom: 1px solid silver;
+    font-size: 0.85rem;
+}
+
+.chart-selector {
+    margin: 0.2rem 0.4rem;
+    color: darkblue;
+    cursor: pointer;
+}
+
+.chart-selector:hover {
+    margin: 0.2rem 0.4rem;
+    text-decoration: underline dotted;
+}
+
+canvas {
+    flex-grow: 1;
+}
+
+#by_lang_div {
+    display: none;
+}

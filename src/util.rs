@@ -57,3 +57,15 @@ impl PathExt for Path {
         self.to_str().expect("path should be valid UTF-8")
     }
 }
+
+pub fn gen_month_range(from: YearMonth, to: YearMonth) -> Vec<YearMonth> {
+    let mut months = Vec::new();
+    for year in from.year..=to.year {
+        let min_month = if year == from.year { from.month } else { 1 };
+        let max_month = if year == to.year { to.month } else { 12 };
+        for month in min_month..=max_month {
+            months.push(YearMonth { year, month });
+        }
+    }
+    months
+}
