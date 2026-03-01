@@ -171,11 +171,11 @@ fn get_stats_from_commit(
     tree.walk(TreeWalkMode::PreOrder, |_, entry| {
         // only process files, not other object types
         if let Some(ObjectType::Blob) = entry.kind() {
-            let blob = repo.find_blob(entry.id()).unwrap();
-            let result = cache.entry(blob.id()).or_insert_with(|| {
+            let blob_oid = entry.id();
+            let result = cache.entry(blob_oid).or_insert_with(|| {
+                let blob = repo.find_blob(blob_oid).unwrap();
                 count_lines_in_file(entry.name().unwrap(), blob.content(), skip_languages)
             });
-
             if let Some((language, lines)) = *result {
                 *languages.entry(language).or_insert(0) += lines;
             }
