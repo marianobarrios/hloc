@@ -1,4 +1,3 @@
-use std::cmp;
 use std::io::BufRead;
 use std::path::Path;
 use tokei::LanguageType;
@@ -29,20 +28,13 @@ fn detect_language_from_file_name(file_name: &str) -> Option<LanguageType> {
 }
 
 fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
-    // Read at max `READ_LIMIT` bytes from the given file. It is very unlikely the file contains a
-    // valid shebang longer than that.
-    const READ_LIMIT: usize = 128;
-    let trunc_content = &file_content[..cmp::min(file_content.len(), READ_LIMIT)];
-
-    let first_line = trunc_content.lines().next()?.ok()?;
+    let first_line = file_content.lines().next()?.ok()?;
     let mut words = first_line.split_whitespace();
     let first_word = words.next()?;
-
     if first_word == "#!/usr/bin/env" {
         let second_word = words.next()?;
         return language_from_shebang_env(second_word);
     }
-
     for &(language, _) in LanguageType::list() {
         for &shebang in language.shebangs() {
             if first_word == shebang {
