@@ -1,16 +1,27 @@
 use std::io::BufRead;
 use std::path::Path;
-use tokei::LanguageType;
 use tokei::LanguageType::*;
+use crate::util::OsStrExt;
 
-pub fn detect_language(file_name: &str, file_content: &[u8]) -> Option<LanguageType> {
+pub fn detect_language(
+    repo: &git2::Repository,
+    blob_oid: git2::Oid,
+    file_name: &str,
+) -> Option<tokei::LanguageType> {
     detect_language_from_file_name(file_name).or_else(|| match Path::new(file_name).extension() {
-        Some(ext) => LanguageType::from_file_extension(&ext.to_str().unwrap().to_lowercase()),
-        None => detect_language_from_shebang(file_content),
+        Some(ext) => tokei::LanguageType::from_file_extension(&ext.to_str_or_panic().to_lowercase()),
+        None => {
+            // Note: This function will be called again when doing the actual count, that could be
+            // avoided introducing some ugliness in the code. However, in practice the effect is
+            // small because shebang detection is done unfrequently.
+            let blob = repo.find_blob(blob_oid).unwrap();
+
+            detect_language_from_shebang(blob.content())
+        }
     })
 }
 
-fn detect_language_from_file_name(file_name: &str) -> Option<LanguageType> {
+fn detect_language_from_file_name(file_name: &str) -> Option<tokei::LanguageType> {
     match file_name.to_lowercase().as_ref() {
         "build" | "workspace" | "module" => Some(Bazel),
         "cmakelists.txt" => Some(CMake),
@@ -27,7 +38,7 @@ fn detect_language_from_file_name(file_name: &str) -> Option<LanguageType> {
     }
 }
 
-fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
+fn detect_language_from_shebang(file_content: &[u8]) -> Option<tokei::LanguageType> {
     let first_line = file_content.lines().next()?.ok()?;
     let mut words = first_line.split_whitespace();
     let first_word = words.next()?;
@@ -35,7 +46,7 @@ fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
         let second_word = words.next()?;
         return language_from_shebang_env(second_word);
     }
-    for &(language, _) in LanguageType::list() {
+    for &(language, _) in tokei::LanguageType::list() {
         for &shebang in language.shebangs() {
             if first_word == shebang {
                 return Some(language);
@@ -45,7 +56,7 @@ fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
     None
 }
 
-fn language_from_shebang_env(word: &str) -> Option<LanguageType> {
+fn language_from_shebang_env(word: &str) -> Option<tokei::LanguageType> {
     match word {
         "bash" => Some(Bash),
         "csh" => Some(CShell),

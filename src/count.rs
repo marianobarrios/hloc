@@ -172,11 +172,11 @@ fn get_stats_from_commit(
         // only process files, not other object types
         if let Some(ObjectType::Blob) = entry.kind() {
             let blob_oid = entry.id();
-            let result = cache.entry(blob_oid).or_insert_with(|| {
-                let blob = repo.find_blob(blob_oid).unwrap();
-                count_lines_in_file(entry.name().unwrap(), blob.content(), skip_languages)
-            });
-            if let Some((language, lines)) = *result {
+            let file_name = entry.name().unwrap();
+            let result = count_lines(repo, blob_oid, file_name, skip_languages, cache);
+
+            // merge result with the global count
+            if let Some((language, lines)) = result {
                 *languages.entry(language).or_insert(0) += lines;
             }
         }
@@ -186,15 +186,33 @@ fn get_stats_from_commit(
     CodeStats { languages }
 }
 
-fn count_lines_in_file(
+fn count_lines(
+    repo: &git2::Repository,
+    blob_oid: git2::Oid,
     file_name: &str,
-    file_content: &[u8],
+    skip_languages: &[tokei::LanguageType],
+    cache: &mut HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>>,
+) -> Option<(tokei::LanguageType, usize)> {
+    *cache
+        .entry(blob_oid)
+        .or_insert_with(|| count_lines_impl(repo, blob_oid, file_name, skip_languages))
+}
+
+fn count_lines_impl(
+    repo: &git2::Repository,
+    blob_oid: git2::Oid,
+    file_name: &str,
     skip_languages: &[tokei::LanguageType],
 ) -> Option<(tokei::LanguageType, usize)> {
-    if let Some(lang) = languages::detect_language(file_name, file_content)
+    if let Some(lang) = languages::detect_language(repo, blob_oid, file_name)
         && !skip_languages.contains(&lang)
     {
-        let stats = lang.parse_from_slice(file_content, &tokei::Config::default());
+        // this is the most expensive step with respect to Git, postponing it until it's really needed
+        let blob = repo.find_blob(blob_oid).unwrap();
+
+        // actual count
+        let stats = lang.parse_from_slice(blob.content(), &tokei::Config::default());
+
         Some((lang, stats.code))
     } else {
         None
