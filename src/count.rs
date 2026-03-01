@@ -3,7 +3,7 @@ use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, OsStrExt, PathExt, YearMonth, datetime_from_epoch_seconds};
 use crate::{RepoParsedConfig, util};
 use console::style;
-use git2::{Commit, ObjectType, Sort, TreeWalkMode, TreeWalkResult};
+use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap};
@@ -107,13 +107,13 @@ where
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
     // code, taking the last commit of each period of time, currently the month.
-    let samples: BTreeMap<YearMonth, Commit> = sample_commits(&repo);
+    let samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo);
 
     // actually count the lines
     get_stats_from_samples(&repo, &samples, skip_languages, update_reporter)
 }
 
-fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
+fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, git2::Oid> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
 
@@ -124,21 +124,21 @@ fn sample_commits(repo: &git2::Repository) -> BTreeMap<YearMonth, Commit<'_>> {
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
 
     revwalk.push_head().unwrap();
-    for oid in revwalk {
-        let oid = oid.unwrap();
-        let commit = repo.find_commit(oid).unwrap();
+    for commit_oid in revwalk {
+        let commit_oid = commit_oid.unwrap();
+        let commit = repo.find_commit(commit_oid).unwrap();
         let time = datetime_from_epoch_seconds(commit.time().seconds());
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(YearMonth::from_datetime(time), commit);
+        samples.insert(YearMonth::from_datetime(time), commit_oid);
     }
     samples
 }
 
 fn get_stats_from_samples<F>(
     repo: &git2::Repository,
-    samples: &BTreeMap<YearMonth, Commit>,
+    samples: &BTreeMap<YearMonth, git2::Oid>,
     skip_languages: &[tokei::LanguageType],
     update_reporter: F,
 ) -> HistoricStats
@@ -152,8 +152,8 @@ where
     // to avoid counting lines in the same file more than once
     let mut cache: HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>> = HashMap::new();
 
-    for (i, (&date, commit)) in samples.iter().enumerate() {
-        snapshots.insert(date, get_stats_from_commit(repo, commit, skip_languages, &mut cache));
+    for (i, (&date, &commit_oid)) in samples.iter().enumerate() {
+        snapshots.insert(date, get_stats_from_commit(repo, commit_oid, skip_languages, &mut cache));
         let progress = (i + 1) as f32 / total as f32;
         update_reporter(progress, &format!("counting {}", date));
     }
@@ -162,10 +162,11 @@ where
 
 fn get_stats_from_commit(
     repo: &git2::Repository,
-    commit: &Commit,
+    commit_oid: git2::Oid,
     skip_languages: &[tokei::LanguageType],
     cache: &mut HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>>,
 ) -> CodeStats {
+    let commit = repo.find_commit(commit_oid).unwrap();
     let tree = commit.tree().unwrap();
     let mut languages = HashMap::new();
     tree.walk(TreeWalkMode::PreOrder, |_, entry| {
@@ -193,9 +194,7 @@ fn count_lines(
     skip_languages: &[tokei::LanguageType],
     cache: &mut HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>>,
 ) -> Option<(tokei::LanguageType, usize)> {
-    *cache
-        .entry(blob_oid)
-        .or_insert_with(|| count_lines_impl(repo, blob_oid, file_name, skip_languages))
+    *cache.entry(blob_oid).or_insert_with(|| count_lines_impl(repo, blob_oid, file_name, skip_languages))
 }
 
 fn count_lines_impl(

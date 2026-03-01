@@ -1,7 +1,7 @@
+use crate::util::OsStrExt;
 use std::io::BufRead;
 use std::path::Path;
 use tokei::LanguageType::*;
-use crate::util::OsStrExt;
 
 pub fn detect_language(
     repo: &git2::Repository,
