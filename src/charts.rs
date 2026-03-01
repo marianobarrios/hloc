@@ -1,10 +1,15 @@
 use crate::stats::GlobalStats;
+use crate::util;
 use crate::util::YearMonth;
-use crate::{Asset, util};
+use rust_embed::Embed;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
+
+#[derive(Embed)]
+#[folder = "templates"]
+struct Asset;
 
 pub fn write_output(
     output_dir: &Path,
@@ -22,9 +27,9 @@ pub fn write_output(
     }
     fs::create_dir(output_dir).unwrap();
 
-    copy_file(output_dir, "chart.html");
-    copy_file(output_dir, "chart.js");
-    copy_file(output_dir, "chart.css");
+    copy_file_from_embedded(output_dir, "chart.html");
+    copy_file_from_embedded(output_dir, "chart.js");
+    copy_file_from_embedded(output_dir, "chart.css");
 
     let by_repo_data = serde_json::to_string(&by_repo_data).unwrap();
     let by_lang_data = serde_json::to_string(&by_lang_data).unwrap();
@@ -36,9 +41,9 @@ pub fn write_output(
     output_dir.join("chart.html")
 }
 
-fn copy_file<P: AsRef<Path>>(output_dir: P, file_name: &str) {
+fn copy_file_from_embedded(output_dir: &Path, file_name: &str) {
     let chart_html = Asset::get(file_name).unwrap();
-    fs::write(output_dir.as_ref().join(file_name), chart_html.data).unwrap();
+    fs::write(output_dir.join(file_name), chart_html.data).unwrap();
 }
 
 fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
@@ -78,7 +83,7 @@ fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
         let mut monthly_data = BTreeMap::new();
         for repo_stats in stats.repositories.values() {
             for (&month, monthly_stats) in repo_stats.snapshots.iter() {
-                let lang_stats = monthly_stats.languages.get(&lang).unwrap_or(&0);
+                let lang_stats = monthly_stats.languages.get(lang).unwrap_or(&0);
                 *monthly_data.entry(month).or_insert(0) += lang_stats;
             }
         }

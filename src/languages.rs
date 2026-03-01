@@ -28,7 +28,7 @@ fn detect_language_from_file_name(file_name: &str) -> Option<LanguageType> {
     }
 }
 
-pub fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
+fn detect_language_from_shebang(file_content: &[u8]) -> Option<LanguageType> {
     // Read at max `READ_LIMIT` bytes from the given file. It is very unlikely the file contains a
     // valid shebang longer than that.
     const READ_LIMIT: usize = 128;
