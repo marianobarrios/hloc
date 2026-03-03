@@ -10,7 +10,7 @@ use config::Config;
 use console::style;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
+use std::time::Instant;
 use std::{fs, process};
 use util::PathExt;
 use walkdir::WalkDir;
@@ -56,11 +56,11 @@ fn main() {
     };
     let repos = collect_repositories(&args.base_dir);
     let repos_with_config = apply_config(&repos, &parsed_config);
-    let start = SystemTime::now();
+    let start = Instant::now();
     let (stats, min_month, max_month) =
         count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress);
     let html_file = charts::write_output(&args.output_dir, &stats, min_month, max_month);
-    let time = style(format!("{:.2}s", start.elapsed().unwrap().as_secs_f32())).blue();
+    let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().unwrap().to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
 }
