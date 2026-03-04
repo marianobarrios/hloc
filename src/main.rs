@@ -5,6 +5,7 @@ mod languages;
 mod stats;
 mod util;
 
+use anyhow::{Context, bail};
 use clap::Parser;
 use config::Config;
 use console::style;
@@ -47,29 +48,38 @@ struct Args {
     config: Option<PathBuf>,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Args::parse();
     let parsed_config = match args.config {
-        Some(config_file) => parse_config(&fs::read_to_string(&config_file).unwrap()),
+        Some(config_file) => {
+            let file = fs::read_to_string(&config_file)
+                .with_context(|| format!("cannot read file {config_file:?}"))?;
+            parse_config(&file).with_context(|| format!("cannot parse file {config_file:?}"))?
+        }
         None => HashMap::new(),
     };
     let repos = collect_repositories(&args.base_dir);
+    if repos.is_empty() {
+        bail!("No Git repositories found in {}", args.base_dir);
+    }
     let repos_with_config = apply_config(&repos, &parsed_config);
     let start = Instant::now();
     let (stats, min_month, max_month) =
-        count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress);
-    let html_file = charts::write_output(&args.output_dir, &stats, min_month, max_month);
+        count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress)?;
+    let html_file = charts::write_output(&args.output_dir, &stats, min_month, max_month)?;
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
-    let url = format!("file://{}", html_file.canonicalize().unwrap().to_str_or_panic());
+    let url = format!("file://{}", html_file.canonicalize().expect("valid path").to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
+    Ok(())
 }
 
-fn parse_config(file_contents: &str) -> HashMap<glob::Pattern, RepoParsedConfig> {
-    let config: Config = serde_yaml_ng::from_str(file_contents).unwrap();
+fn parse_config(file_contents: &str) -> anyhow::Result<HashMap<glob::Pattern, RepoParsedConfig>> {
+    let config: Config = serde_yaml_ng::from_str(file_contents).with_context(|| "cannot parse YAML")?;
     let mut parsed_config: HashMap<glob::Pattern, RepoParsedConfig> = HashMap::new();
-    for (unparsed_patter, repo_config) in config.repositories.into_iter() {
-        let pattern = glob::Pattern::new(&unparsed_patter).unwrap();
+    for (unparsed_pattern, repo_config) in config.repositories.into_iter() {
+        let pattern = glob::Pattern::new(&unparsed_pattern)
+            .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?;
         let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
             Ok(languages) => languages,
             Err(err) => {
@@ -79,7 +89,7 @@ fn parse_config(file_contents: &str) -> HashMap<glob::Pattern, RepoParsedConfig>
         };
         parsed_config.insert(pattern, RepoParsedConfig { ignore: repo_config.ignore, skip_languages });
     }
-    parsed_config
+    Ok(parsed_config)
 }
 
 /// Finds all Git repositories recursively.

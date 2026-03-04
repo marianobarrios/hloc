@@ -1,6 +1,7 @@
 use crate::stats::GlobalStats;
 use crate::util;
 use crate::util::YearMonth;
+use anyhow::Context;
 use rust_embed::Embed;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
@@ -16,7 +17,7 @@ pub fn write_output(
     stats: &GlobalStats,
     min_month: YearMonth,
     max_month: YearMonth,
-) -> PathBuf {
+) -> anyhow::Result<PathBuf> {
     let by_repo_data = get_by_repo_chart(stats, min_month, max_month);
     let by_lang_data = get_by_lang_chart(stats, min_month, max_month);
 
@@ -25,25 +26,23 @@ pub fn write_output(
         Err(err) if err.kind() == io::ErrorKind::NotFound => (),
         Err(err) => panic!("{}", err),
     }
-    fs::create_dir(output_dir).unwrap();
+    fs::create_dir(output_dir).with_context(|| format!("cannot create directory {:?}", output_dir))?;
 
-    copy_file_from_embedded(output_dir, "chart.html");
-    copy_file_from_embedded(output_dir, "chart.js");
-    copy_file_from_embedded(output_dir, "chart.css");
+    copy_file_from_embedded(output_dir, "chart.html")?;
+    copy_file_from_embedded(output_dir, "chart.js")?;
+    copy_file_from_embedded(output_dir, "chart.css")?;
 
-    let by_repo_data = serde_json::to_string(&by_repo_data).unwrap();
-    let by_lang_data = serde_json::to_string(&by_lang_data).unwrap();
-    fs::write(
-        output_dir.join("data.js"),
-        format!("by_repo_data = {by_repo_data};\nby_lang_data = {by_lang_data};\n"),
-    )
-    .unwrap();
-    output_dir.join("chart.html")
+    let data_file = output_dir.join("data.js");
+    fs::write(&data_file, format!("by_repo_data = {by_repo_data};\nby_lang_data = {by_lang_data};\n"))
+        .with_context(|| format!("cannot write file {:?}", data_file))?;
+    Ok(output_dir.join("chart.html"))
 }
 
-fn copy_file_from_embedded(output_dir: &Path, file_name: &str) {
+fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result<()> {
     let chart_html = Asset::get(file_name).unwrap();
-    fs::write(output_dir.join(file_name), chart_html.data).unwrap();
+    let file = output_dir.join(file_name);
+    fs::write(&file, chart_html.data).with_context(|| format!("cannot write file {:?}", file))?;
+    Ok(())
 }
 
 fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
@@ -112,7 +111,8 @@ fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
 fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> {
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
-        let last_commit = historic_stats.snapshots.values().last().unwrap();
+        let last_commit =
+            historic_stats.snapshots.values().last().expect("repository should have at least one commit");
         for (language, line_count) in last_commit.languages.iter() {
             *language_map.entry(*language).or_insert(0) += line_count;
         }
@@ -126,7 +126,8 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
 fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<String> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in global_stats.repositories.iter() {
-        let last_commit = historic_stats.snapshots.values().last().unwrap();
+        let last_commit =
+            historic_stats.snapshots.values().last().expect("repository should have at least one commit");
         for line_count in last_commit.languages.values() {
             *repo_map.entry(repo.clone()).or_insert(0) += line_count;
         }

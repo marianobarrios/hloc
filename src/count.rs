@@ -2,6 +2,7 @@ use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, OsStrExt, PathExt, YearMonth, datetime_from_epoch_seconds};
 use crate::{RepoParsedConfig, util};
+use anyhow::Context;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -20,17 +21,17 @@ pub fn get_stats_from_repos(
     base_path: &str,
     repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
     suppress_progress: bool,
-) -> (GlobalStats, YearMonth, YearMonth) {
-    let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, suppress_progress);
+) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
+    let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, suppress_progress)?;
     let (min_month, max_month) = fill_gaps(&mut stats);
-    (stats, min_month, max_month)
+    Ok((stats, min_month, max_month))
 }
 
 fn get_stats_in_repos_impl(
     base_path: &str,
     repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
     suppress_progress: bool,
-) -> GlobalStats {
+) -> anyhow::Result<GlobalStats> {
     let filtered_repos: HashMap<_, _> =
         repos_with_config.iter().filter(|&(_, config)| !config.ignore).collect();
 
@@ -52,7 +53,8 @@ fn get_stats_in_repos_impl(
     bar.set_message("sampling commits");
     let mut samples: HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> = HashMap::new();
     for &repo_path in filtered_repos.keys() {
-        let repo = git2::Repository::open(repo_path.to_str_or_panic()).unwrap();
+        let repo = git2::Repository::open(repo_path.to_str_or_panic())
+            .with_context(|| format!("cannot open Git repository at {repo_path:?}"))?;
         let repo_samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo);
         samples.insert(repo_path.clone(), repo_samples);
     }
@@ -87,7 +89,7 @@ fn get_stats_in_repos_impl(
     bar.finish_and_clear();
 
     let total_stats = total_stats.lock_or_panic();
-    GlobalStats { repositories: total_stats.clone() }
+    Ok(GlobalStats { repositories: total_stats.clone() })
 }
 
 fn add_current_repo(currently_counting: &mut LinkedHashSet<String>, bar: &ProgressBar, name: &str) {
@@ -106,9 +108,12 @@ fn list_of_current(currently_counting: &LinkedHashSet<String>) -> String {
 
 fn display_name(base_path: &str, path: &Path) -> String {
     if path == base_path {
-        path.file_name().unwrap().to_str_or_panic().to_owned()
+        path.file_name().expect("path should be a file").to_str_or_panic().to_owned()
     } else {
-        path.strip_prefix(base_path).unwrap().to_str_or_panic().to_owned()
+        path.strip_prefix(base_path)
+            .expect("the base path should be a prefix if the file")
+            .to_str_or_panic()
+            .to_owned()
     }
 }
 
@@ -249,7 +254,7 @@ fn count_lines_impl(
 }
 
 fn fill_gaps(stats: &mut GlobalStats) -> (YearMonth, YearMonth) {
-    let (min_month, max_month) = get_extreme_months(stats);
+    let (min_month, max_month) = get_extreme_months(stats).expect("there should be at least one month");
     for historic_stats in stats.repositories.values_mut() {
         for month in util::gen_month_range(min_month, max_month) {
             let floor = historic_stats
@@ -265,10 +270,14 @@ fn fill_gaps(stats: &mut GlobalStats) -> (YearMonth, YearMonth) {
     (min_month, max_month)
 }
 
-fn get_extreme_months(global_stats: &GlobalStats) -> (YearMonth, YearMonth) {
+fn get_extreme_months(global_stats: &GlobalStats) -> Option<(YearMonth, YearMonth)> {
     let months: Vec<_> =
         global_stats.repositories.values().flat_map(|s| s.snapshots.iter()).map(|s| s.0).cloned().collect();
-    let min = months.iter().min().unwrap();
-    let max = months.iter().max().unwrap();
-    (*min, *max)
+    if months.is_empty() {
+        None
+    } else {
+        let min = months.iter().min().unwrap();
+        let max = months.iter().max().unwrap();
+        Some((*min, *max))
+    }
 }
