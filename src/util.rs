@@ -8,12 +8,12 @@ use std::time::{Duration, UNIX_EPOCH};
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct YearMonth {
     pub year: i32,
-    pub month: u8,
+    pub month: u32,
 }
 
 impl YearMonth {
     pub fn from_datetime(datetime: DateTime<Utc>) -> Self {
-        Self { year: datetime.year(), month: datetime.month() as u8 }
+        Self { year: datetime.year(), month: datetime.month() }
     }
 }
 
@@ -68,4 +68,11 @@ pub fn gen_month_range(from: YearMonth, to: YearMonth) -> Vec<YearMonth> {
         }
     }
     months
+}
+
+pub fn merge_options<T>(a: Option<T>, b: Option<T>, merge_fn: fn(T, T) -> T) -> Option<T> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(merge_fn(a, b)),
+        (opt_a, opt_b) => opt_a.or(opt_b),
+    }
 }

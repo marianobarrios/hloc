@@ -78,10 +78,10 @@ fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
     let all_languages = get_sorted_languages(stats);
 
     let mut per_lang_data = BTreeMap::new();
-    for lang in all_languages.iter() {
+    for lang in &all_languages {
         let mut monthly_data = BTreeMap::new();
         for repo_stats in stats.repositories.values() {
-            for (&month, monthly_stats) in repo_stats.snapshots.iter() {
+            for (&month, monthly_stats) in &repo_stats.snapshots {
                 let lang_stats = monthly_stats.languages.get(lang).unwrap_or(&0);
                 *monthly_data.entry(month).or_insert(0) += lang_stats;
             }
@@ -113,7 +113,7 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
     for historic_stats in global_stats.repositories.values() {
         let last_commit =
             historic_stats.snapshots.values().last().expect("repository should have at least one commit");
-        for (language, line_count) in last_commit.languages.iter() {
+        for (language, line_count) in &last_commit.languages {
             *language_map.entry(*language).or_insert(0) += line_count;
         }
     }
@@ -125,7 +125,7 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
 /// Returns the repositories present in the stats, sorted by decreasing size (using last commit)
 fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<String> {
     let mut repo_map = HashMap::new();
-    for (repo, historic_stats) in global_stats.repositories.iter() {
+    for (repo, historic_stats) in &global_stats.repositories {
         let last_commit =
             historic_stats.snapshots.values().last().expect("repository should have at least one commit");
         for line_count in last_commit.languages.values() {

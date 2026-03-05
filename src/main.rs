@@ -6,9 +6,11 @@ mod stats;
 mod util;
 
 use anyhow::{Context, bail};
+use chrono::NaiveDate;
 use clap::Parser;
 use config::Config;
 use console::style;
+use std::cmp;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -20,23 +22,30 @@ use walkdir::WalkDir;
 struct RepoParsedConfig {
     ignore: bool,
     skip_languages: Vec<tokei::LanguageType>,
+    from: Option<NaiveDate>,
+    to: Option<NaiveDate>,
 }
 
 impl RepoParsedConfig {
     fn default() -> Self {
-        Self { ignore: false, skip_languages: Vec::new() }
+        Self { ignore: false, skip_languages: Vec::new(), from: None, to: None }
     }
 
     pub fn merge(mut self, other: &Self) -> Self {
         self.skip_languages.extend_from_slice(&other.skip_languages);
-        Self { ignore: self.ignore || other.ignore, skip_languages: self.skip_languages }
+        Self {
+            ignore: self.ignore || other.ignore,
+            skip_languages: self.skip_languages,
+            from: util::merge_options(self.from, other.from, cmp::max),
+            to: util::merge_options(self.to, other.to, cmp::min),
+        }
     }
 }
 
 #[derive(Debug, clap::Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
-    base_dir: String,
+    base_dir: PathBuf,
 
     #[arg(short, long, action)]
     suppress_progress: bool,
@@ -46,6 +55,9 @@ struct Args {
 
     #[arg(short, long, value_name = "CONFIG_FILE")]
     config: Option<PathBuf>,
+
+    #[arg(long, help = "Show resolved configuration and exit")]
+    show_resolved_config: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -61,9 +73,13 @@ fn main() -> anyhow::Result<()> {
     };
     let repos = collect_repositories(&args.base_dir);
     if repos.is_empty() {
-        bail!("No Git repositories found in {}", args.base_dir);
+        bail!("No Git repositories found in {}", args.base_dir.to_str_or_panic());
     }
     let repos_with_config = apply_config(&repos, &parsed_config);
+    if args.show_resolved_config {
+        println!("{repos_with_config:#?}");
+        return Ok(());
+    }
     let start = Instant::now();
     let (stats, min_month, max_month) =
         count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress)?;
@@ -77,30 +93,39 @@ fn main() -> anyhow::Result<()> {
 fn parse_config(file_contents: &str) -> anyhow::Result<HashMap<glob::Pattern, RepoParsedConfig>> {
     let config: Config = serde_yaml_ng::from_str(file_contents).with_context(|| "cannot parse YAML")?;
     let mut parsed_config: HashMap<glob::Pattern, RepoParsedConfig> = HashMap::new();
-    for (unparsed_pattern, repo_config) in config.repositories.into_iter() {
+    for (unparsed_pattern, repo_config) in config.repositories {
         let pattern = glob::Pattern::new(&unparsed_pattern)
             .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?;
         let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
             Ok(languages) => languages,
             Err(err) => {
-                eprintln!("Cannot parse language: {}", err);
+                eprintln!("Cannot parse language: {err}");
                 process::exit(1);
             }
         };
-        parsed_config.insert(pattern, RepoParsedConfig { ignore: repo_config.ignore, skip_languages });
+        parsed_config.insert(
+            pattern,
+            RepoParsedConfig {
+                ignore: repo_config.ignore,
+                skip_languages,
+                from: repo_config.from_time,
+                to: repo_config.to_time,
+            },
+        );
     }
     Ok(parsed_config)
 }
 
 /// Finds all Git repositories recursively.
-fn collect_repositories<P: AsRef<Path>>(path: P) -> Vec<PathBuf> {
+fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
     // The iterator is created only for its side effects
     let mut repos = Vec::new();
-    WalkDir::new(path)
+    WalkDir::new(base_dir)
         .into_iter()
         .filter_entry(|e| {
             if is_git_repo(e.path()) {
-                repos.push(e.path().to_owned());
+                let rel_path = pathdiff::diff_paths(e.path(), base_dir).unwrap();
+                repos.push(rel_path);
                 false // do not recurse inside repositories
             } else {
                 true
@@ -131,14 +156,14 @@ fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageT
     for arg in string_args {
         match tokei::LanguageType::from_name(arg) {
             Some(language) => parsed_languages.push(language),
-            None => return Err(format!("unknown language {}", arg).to_owned()),
+            None => return Err(format!("unknown language {arg}").to_owned()),
         }
     }
     Ok(parsed_languages)
 }
 
 /// Checks whether the supplied path is a Git repo with at least one commit
-fn is_git_repo<P: AsRef<Path>>(path: P) -> bool {
+fn is_git_repo(path: &Path) -> bool {
     match git2::Repository::open(path) {
         Ok(repo) => repo.head().is_ok(),
         Err(_) => false,
