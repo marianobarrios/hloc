@@ -3,7 +3,6 @@ use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, YearMonth, datetime_from_epoch_seconds};
 use crate::{RepoParsedConfig, util};
 use anyhow::Context;
-use chrono::Datelike;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -143,7 +142,7 @@ fn sample_commits(repo: &git2::Repository, config: &RepoParsedConfig) -> BTreeMa
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(YearMonth::from_datetime(time), commit_oid);
+        samples.insert(YearMonth::from_datelike(time), commit_oid);
     }
     samples
 }
@@ -268,7 +267,7 @@ fn fill_gaps(
         // Note: This is not necessary with the "from" date because data is always propagated from
         // the past to the future, and not the other way around.
         let effective_max_month = match config.to {
-            Some(to) => cmp::min(max_month, YearMonth { year: to.year(), month: to.month() }),
+            Some(to) => cmp::min(max_month, YearMonth::from_datelike(to)),
             None => max_month,
         };
 

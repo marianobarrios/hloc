@@ -12,8 +12,8 @@ pub struct YearMonth {
 }
 
 impl YearMonth {
-    pub fn from_datetime(datetime: DateTime<Utc>) -> Self {
-        Self { year: datetime.year(), month: datetime.month() }
+    pub fn from_datelike<T: Datelike>(datelike: T) -> Self {
+        Self { year: datelike.year(), month: datelike.month() }
     }
 }
 
