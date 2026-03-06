@@ -56,7 +56,7 @@ fn get_stats_in_repos_impl(
     let mut samples: HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> = HashMap::new();
     for (&repo_path, &repo_config) in &filtered_repos {
         let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
-            .with_context(|| format!("cannot open Git repository at {repo_path:?}"))?;
+            .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))?;
 
         let repo_samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo, repo_config);
         samples.insert(repo_path.clone(), repo_samples);
@@ -68,16 +68,10 @@ fn get_stats_in_repos_impl(
     filtered_repos.par_iter().for_each(|(&path, &config)| {
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, path.to_str_or_panic());
 
-        let stats = get_stats_from_samples(
-            base_path,
-            path,
-            &samples[path],
-            &config.skip_languages,
-            Arc::new({
-                let bar = bar.clone();
-                move || bar.inc(1)
-            }),
-        );
+        let stats = get_stats_from_samples(base_path, path, &samples[path], &config.skip_languages, {
+            let bar = bar.clone();
+            move || bar.inc(1)
+        });
 
         total_stats.lock_or_panic().insert(path.to_str_or_panic().to_owned(), stats);
 
@@ -159,13 +153,14 @@ fn get_stats_from_samples<F>(
     repo_path: &Path,
     samples: &BTreeMap<YearMonth, git2::Oid>,
     skip_languages: &[tokei::LanguageType],
-    update_reporter: Arc<F>,
+    update_reporter: F,
 ) -> HistoricStats
 where
     F: Fn() + Send + Sync,
 {
     let snapshots = Arc::new(Mutex::new(BTreeMap::new()));
     let cache: Arc<Mutex<StatsCache>> = Arc::new(Mutex::new(HashMap::new()));
+    let update_reporter = Arc::new(update_reporter);
 
     // The second level of concurrency (after parallelizing by repository) is by commit. This is
     // necessary for when a couple of repositories are much bigger than the rest, or when simply
@@ -229,14 +224,12 @@ fn count_lines(
     skip_languages: &[tokei::LanguageType],
     cache: &Mutex<StatsCache>,
 ) -> Option<(tokei::LanguageType, usize)> {
-    let existing = cache.lock_or_panic().get(&blob_oid).copied();
-    match existing {
-        Some(result) => result,
-        None => {
-            let stats = count_lines_impl(repo, blob_oid, file_name, skip_languages);
-            cache.lock_or_panic().insert(blob_oid, stats);
-            stats
-        }
+    if let Some(existing) = cache.lock_or_panic().get(&blob_oid).copied() {
+        existing
+    } else {
+        let stats = count_lines_impl(repo, blob_oid, file_name, skip_languages);
+        cache.lock_or_panic().insert(blob_oid, stats);
+        stats
     }
 }
 
