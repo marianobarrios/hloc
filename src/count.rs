@@ -203,7 +203,7 @@ fn get_stats_from_commit(
         // only process files, not other object types
         if let Some(ObjectType::Blob) = entry.kind() {
             let blob_oid = entry.id();
-            let file_name = entry.name().unwrap();
+            let file_name = Path::new(entry.name().unwrap());
             let result = count_lines(&repo, blob_oid, file_name, skip_languages, cache);
 
             // merge result with the global count
@@ -220,7 +220,7 @@ fn get_stats_from_commit(
 fn count_lines(
     repo: &git2::Repository,
     blob_oid: git2::Oid,
-    file_name: &str,
+    file_name: &Path,
     skip_languages: &[tokei::LanguageType],
     cache: &Mutex<StatsCache>,
 ) -> Option<(tokei::LanguageType, usize)> {
@@ -236,7 +236,7 @@ fn count_lines(
 fn count_lines_impl(
     repo: &git2::Repository,
     blob_oid: git2::Oid,
-    file_name: &str,
+    file_name: &Path,
     skip_languages: &[tokei::LanguageType],
 ) -> Option<(tokei::LanguageType, usize)> {
     if let Some(lang) = languages::detect_language(repo, blob_oid, file_name)
