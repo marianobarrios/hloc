@@ -25,6 +25,7 @@ pub fn get_stats_from_repos(
     suppress_progress: bool,
 ) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
     let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, suppress_progress)?;
+    remove_zero_lines_repos(&mut stats);
     let (min_month, max_month) = fill_gaps(&mut stats, repos_with_config);
     Ok((stats, min_month, max_month))
 }
@@ -293,5 +294,18 @@ fn get_extreme_months(global_stats: &GlobalStats) -> Option<(YearMonth, YearMont
         let min = months.iter().min().unwrap();
         let max = months.iter().max().unwrap();
         Some((*min, *max))
+    }
+}
+
+fn remove_zero_lines_repos(stats: &mut GlobalStats) {
+    let mut empty_repos = Vec::new();
+    for (repo, historic_stats) in &stats.repositories {
+        if historic_stats.snapshots.values().all(|code_stats| code_stats.languages.values().all(|&s| s == 0))
+        {
+            empty_repos.push(repo.clone());
+        }
+    }
+    for repo in empty_repos {
+        stats.repositories.remove(&repo);
     }
 }
