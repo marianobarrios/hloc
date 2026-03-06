@@ -124,7 +124,7 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
 }
 
 /// Returns the repositories present in the stats, sorted by decreasing size (using last commit)
-fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<String> {
+fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<PathBuf> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in &global_stats.repositories {
         let last_commit =

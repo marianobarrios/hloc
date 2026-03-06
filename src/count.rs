@@ -65,20 +65,20 @@ fn get_stats_in_repos_impl(
 
     // The first level of concurrent is by repository
     filtered_repos.par_iter().for_each(|(&path, &config)| {
-        add_current_repo(&mut currently_counting.lock_or_panic(), &bar, path.to_str_or_panic());
+        add_current_repo(&mut currently_counting.lock_or_panic(), &bar, path);
 
         let stats = get_stats_from_samples(base_path, path, &samples[path], &config.skip_languages, {
             let bar = bar.clone();
             move || bar.inc(1)
         });
 
-        total_stats.lock_or_panic().insert(path.to_str_or_panic().to_owned(), stats);
+        total_stats.lock_or_panic().insert(path.to_owned(), stats);
 
         let finished_repos = finished_repos.fetch_add(1, Ordering::SeqCst) + 1;
-        remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, path.to_str_or_panic());
+        remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, path);
 
         let counter = style(format!("[{finished_repos:max_step_width$}/{total_repos}]")).dim();
-        bar.println(format!("{counter} {}", path.to_str_or_panic()));
+        bar.println(format!("{counter} {}", path.display()));
     });
 
     bar.finish_and_clear();
@@ -87,18 +87,18 @@ fn get_stats_in_repos_impl(
     Ok(GlobalStats { repositories: total_stats.clone() })
 }
 
-fn add_current_repo(currently_counting: &mut LinkedHashSet<String>, bar: &ProgressBar, name: &str) {
-    currently_counting.insert(name.to_owned());
+fn add_current_repo<'r>(currently_counting: &mut LinkedHashSet<&'r Path>, bar: &ProgressBar, name: &'r Path) {
+    currently_counting.insert(name);
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn remove_current_repo(currently_counting: &mut LinkedHashSet<String>, bar: &ProgressBar, name: &str) {
+fn remove_current_repo(currently_counting: &mut LinkedHashSet<&Path>, bar: &ProgressBar, name: &Path) {
     currently_counting.remove(name);
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn list_of_current(currently_counting: &LinkedHashSet<String>) -> String {
-    currently_counting.iter().cloned().collect::<Vec<_>>().join(", ")
+fn list_of_current(currently_counting: &LinkedHashSet<&Path>) -> String {
+    currently_counting.iter().map(|p| p.to_str_or_panic()).collect::<Vec<_>>().join(", ")
 }
 
 fn create_progress_bar(suppress: bool) -> ProgressBar {
@@ -259,14 +259,12 @@ fn fill_gaps(
 ) -> (YearMonth, YearMonth) {
     let (min_month, max_month) = get_extreme_months(stats).expect("there should be at least one month");
     for (repo, historic_stats) in &mut stats.repositories {
-        let config = &configs[&PathBuf::from(repo)];
-
         // Normally, this function will fill gaps at the end of the series with the last known
         // value, assuming a stale repository. However, a "to" date cut can create the same effect.
         // To prevent this to happen, be careful and iterate only until the appropriate date
         // Note: This is not necessary with the "from" date because data is always propagated from
         // the past to the future, and not the other way around.
-        let effective_max_month = match config.to {
+        let effective_max_month = match configs[repo].to {
             Some(to) => cmp::min(max_month, YearMonth::from_datelike(to)),
             None => max_month,
         };
