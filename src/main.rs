@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     };
     let repos = collect_repositories(&args.base_dir);
     if repos.is_empty() {
-        bail!("No Git repositories found in {}", args.base_dir.to_str_or_panic());
+        bail!("No Git repositories found in {}", args.base_dir.display());
     }
     let repos_with_config = apply_config(&repos, &parsed_config);
     if args.show_resolved_config {
