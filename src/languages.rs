@@ -1,4 +1,4 @@
-use crate::util::OsStrExt;
+use crate::util::{OsStrExt, PathExt};
 use std::io::BufRead;
 use std::path::Path;
 use tokei::LanguageType::*;
@@ -6,10 +6,10 @@ use tokei::LanguageType::*;
 pub fn detect_language(
     repo: &git2::Repository,
     blob_oid: git2::Oid,
-    file_name: &str,
+    file_name: &Path,
 ) -> Option<tokei::LanguageType> {
     detect_language_from_file_name(file_name).or_else(|| {
-        if let Some(ext) = Path::new(file_name).extension() {
+        if let Some(ext) = file_name.extension() {
             tokei::LanguageType::from_file_extension(&ext.to_str_or_panic().to_lowercase())
         } else {
             // Note: This function will be called again when doing the actual count, that could be
@@ -22,8 +22,8 @@ pub fn detect_language(
     })
 }
 
-fn detect_language_from_file_name(file_name: &str) -> Option<tokei::LanguageType> {
-    match file_name.to_lowercase().as_ref() {
+fn detect_language_from_file_name(file_name: &Path) -> Option<tokei::LanguageType> {
+    match file_name.to_str_or_panic().to_lowercase().as_ref() {
         "build" | "workspace" | "module" => Some(Bazel),
         "cmakelists.txt" => Some(CMake),
         "dockerfile" => Some(Dockerfile),
