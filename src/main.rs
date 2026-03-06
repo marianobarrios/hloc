@@ -4,6 +4,7 @@ mod count;
 mod languages;
 mod stats;
 mod util;
+mod year_month;
 
 use anyhow::{Context, bail};
 use chrono::NaiveDate;

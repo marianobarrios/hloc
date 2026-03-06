@@ -1,7 +1,8 @@
+use crate::RepoParsedConfig;
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
-use crate::util::{MutexExt, PathExt, YearMonth, datetime_from_epoch_seconds};
-use crate::{RepoParsedConfig, util};
+use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
+use crate::year_month::YearMonth;
 use anyhow::Context;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
@@ -269,7 +270,7 @@ fn fill_gaps(
             None => max_month,
         };
 
-        for month in util::gen_month_range(min_month, effective_max_month) {
+        for month in min_month.iter_to(effective_max_month) {
             let floor = historic_stats
                 .snapshots
                 .range(..=month)
