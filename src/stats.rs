@@ -1,4 +1,4 @@
-use crate::util::YearMonth;
+use crate::year_month::YearMonth;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::AddAssign;
 use std::path::PathBuf;

@@ -1,6 +1,5 @@
 use crate::stats::GlobalStats;
-use crate::util;
-use crate::util::YearMonth;
+use crate::year_month::YearMonth;
 use anyhow::Context;
 use rust_embed::Embed;
 use serde_json::json;
@@ -47,8 +46,7 @@ fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result
 }
 
 fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
-    let x_labels: Vec<_> =
-        util::gen_month_range(min_month, max_month).iter().map(|m| m.to_string()).collect();
+    let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
     let dataset: Vec<_> = get_sorted_repos(stats)
         .iter()
         .map(|repo| {
@@ -73,8 +71,7 @@ fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
 }
 
 fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
-    let x_labels: Vec<_> =
-        util::gen_month_range(min_month, max_month).iter().map(|m| m.to_string()).collect();
+    let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
 
     let all_languages = get_sorted_languages(stats);
 
