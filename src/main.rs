@@ -11,6 +11,7 @@ use chrono::NaiveDate;
 use clap::Parser;
 use config::Config;
 use console::style;
+use globset::{GlobBuilder, GlobMatcher};
 use std::cmp;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -70,7 +71,7 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("cannot read file {}", config_file.display()))?;
             parse_config(&file).with_context(|| format!("cannot parse file {}", config_file.display()))?
         }
-        None => HashMap::new(),
+        None => Vec::new(),
     };
     let repos = collect_repositories(&args.base_dir);
     if repos.is_empty() {
@@ -91,12 +92,15 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn parse_config(file_contents: &str) -> anyhow::Result<HashMap<glob::Pattern, RepoParsedConfig>> {
+fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
     let config: Config = serde_yaml_ng::from_str(file_contents).with_context(|| "cannot parse YAML")?;
-    let mut parsed_config: HashMap<glob::Pattern, RepoParsedConfig> = HashMap::new();
+    let mut parsed_config: Vec<(GlobMatcher, RepoParsedConfig)> = Vec::new();
     for (unparsed_pattern, repo_config) in config.repositories {
-        let pattern = glob::Pattern::new(&unparsed_pattern)
-            .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?;
+        let pattern = GlobBuilder::new(&unparsed_pattern)
+            .literal_separator(true)
+            .build()
+            .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?
+            .compile_matcher();
         let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
             Ok(languages) => languages,
             Err(err) => {
@@ -104,7 +108,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<HashMap<glob::Pattern, Re
                 process::exit(1);
             }
         };
-        parsed_config.insert(
+        parsed_config.push((
             pattern,
             RepoParsedConfig {
                 ignore: repo_config.ignore,
@@ -112,7 +116,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<HashMap<glob::Pattern, Re
                 from: repo_config.from_time,
                 to: repo_config.to_time,
             },
-        );
+        ));
     }
     Ok(parsed_config)
 }
@@ -138,15 +142,16 @@ fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
 
 fn apply_config(
     repos: &[PathBuf],
-    config: &HashMap<glob::Pattern, RepoParsedConfig>,
+    config: &[(GlobMatcher, RepoParsedConfig)],
 ) -> HashMap<PathBuf, RepoParsedConfig> {
     repos
         .iter()
         .map(|repo| {
-            let (_, configs): (Vec<_>, Vec<_>) =
-                config.iter().filter(|&(pattern, _)| pattern.matches_path(repo.as_path())).unzip();
+            let applicable_config: Vec<_> =
+                config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).collect();
+            let (_, applicable_config): (Vec<_>, Vec<_>) = applicable_config.into_iter().cloned().unzip();
             let merged_config =
-                configs.into_iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge);
+                applicable_config.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge);
             (repo.to_owned(), merged_config)
         })
         .collect()

@@ -18,7 +18,7 @@ rayon = "1.11"
 indicatif = { version = "0.18", features = ["rayon"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml_ng = "0.10"
-glob = "0.3"
+globset = "0.4"
 linked_hash_set = "0.1"
 anyhow = "1.0"
 pathdiff = "0.2.3"
