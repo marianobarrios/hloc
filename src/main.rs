@@ -66,8 +66,8 @@ fn main() -> anyhow::Result<()> {
     let parsed_config = match args.config {
         Some(config_file) => {
             let file = fs::read_to_string(&config_file)
-                .with_context(|| format!("cannot read file {config_file:?}"))?;
-            parse_config(&file).with_context(|| format!("cannot parse file {config_file:?}"))?
+                .with_context(|| format!("cannot read file {}", config_file.display()))?;
+            parse_config(&file).with_context(|| format!("cannot parse file {}", config_file.display()))?
         }
         None => HashMap::new(),
     };

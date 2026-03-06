@@ -26,7 +26,8 @@ pub fn write_output(
         Err(err) if err.kind() == io::ErrorKind::NotFound => (),
         Err(err) => panic!("{}", err),
     }
-    fs::create_dir(output_dir).with_context(|| format!("cannot create directory {:?}", output_dir))?;
+    fs::create_dir(output_dir)
+        .with_context(|| format!("cannot create directory {}", output_dir.display()))?;
 
     copy_file_from_embedded(output_dir, "chart.html")?;
     copy_file_from_embedded(output_dir, "chart.js")?;
@@ -34,14 +35,14 @@ pub fn write_output(
 
     let data_file = output_dir.join("data.js");
     fs::write(&data_file, format!("by_repo_data = {by_repo_data};\nby_lang_data = {by_lang_data};\n"))
-        .with_context(|| format!("cannot write file {:?}", data_file))?;
+        .with_context(|| format!("cannot write file {}", data_file.display()))?;
     Ok(output_dir.join("chart.html"))
 }
 
 fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result<()> {
     let chart_html = Asset::get(file_name).unwrap();
     let file = output_dir.join(file_name);
-    fs::write(&file, chart_html.data).with_context(|| format!("cannot write file {:?}", file))?;
+    fs::write(&file, chart_html.data).with_context(|| format!("cannot write file {}", file.display()))?;
     Ok(())
 }
 
@@ -117,7 +118,7 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
             *language_map.entry(*language).or_insert(0) += line_count;
         }
     }
-    let mut languages: Vec<_> = language_map.keys().cloned().collect();
+    let mut languages: Vec<_> = language_map.keys().copied().collect();
     languages.sort_by(|a, b| language_map[a].cmp(&language_map[b]));
     languages
 }
