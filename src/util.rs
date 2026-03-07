@@ -3,6 +3,7 @@ use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, UNIX_EPOCH};
+use unicode_segmentation::UnicodeSegmentation;
 
 pub fn datetime_from_epoch_seconds(seconds: i64) -> DateTime<Utc> {
     let epoch: DateTime<Utc> = UNIX_EPOCH.into();
@@ -43,5 +44,30 @@ pub fn merge_options<T>(a: Option<T>, b: Option<T>, merge_fn: fn(T, T) -> T) -> 
     match (a, b) {
         (Some(a), Some(b)) => Some(merge_fn(a, b)),
         (opt_a, opt_b) => opt_a.or(opt_b),
+    }
+}
+
+pub fn truncate_beginning(string: &str, max_graphemes: usize, ellipsis: &str) -> String {
+    let truncated: String = string
+        .graphemes(true)
+        .rev() // start from the end of the string
+        .take(max_graphemes)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev() // restore original order
+        .collect();
+    if truncated.len() < string.len() { ellipsis.to_owned() + &truncated } else { truncated }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_graphemes() {
+        assert_eq!(truncate_beginning("abc", 0, "..."), "...");
+        assert_eq!(truncate_beginning("abc", 2, "..."), "...bc");
+        assert_eq!(truncate_beginning("abc", 3, "..."), "abc");
+        assert_eq!(truncate_beginning("abcd", 3, "..."), "...bcd");
     }
 }

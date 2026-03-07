@@ -16,7 +16,7 @@ const options = {
                 }
             },
             reverse: true,
-            maxWidth: 260,
+            maxWidth: 1000,
         },
         autocolors: {
             customize(context) {
