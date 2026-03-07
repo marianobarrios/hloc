@@ -95,7 +95,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
-    let config: Config = serde_yaml_ng::from_str(file_contents).with_context(|| "cannot parse YAML")?;
+    let config: Config = toml::from_str(file_contents).with_context(|| "cannot parse TOML")?;
     let mut parsed_config: Vec<(GlobMatcher, RepoParsedConfig)> = Vec::new();
     for (unparsed_pattern, repo_config) in config.repositories {
         let pattern = GlobBuilder::new(&unparsed_pattern)
