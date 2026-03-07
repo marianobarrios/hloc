@@ -4,12 +4,12 @@ use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
 use crate::year_month::YearMonth;
 use anyhow::Context;
+use chrono::Utc;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use linked_hash_set::LinkedHashSet;
 use rayon::prelude::*;
-use std::cmp;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,10 +24,21 @@ pub fn get_stats_from_repos(
     repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
     suppress_progress: bool,
 ) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
+    // count
     let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, suppress_progress)?;
+
+    // post-processing
+    let min_month = stats
+        .repositories
+        .values()
+        .flat_map(|s| s.snapshots.keys().copied())
+        .min()
+        .expect("there should be at least one month");
+    let this_month = YearMonth::from_datelike(Utc::now());
+    fill_gaps(&mut stats, repos_with_config, min_month, this_month);
     remove_min_lines_repos(&mut stats, repos_with_config);
-    let (min_month, max_month) = fill_gaps(&mut stats, repos_with_config);
-    Ok((stats, min_month, max_month))
+
+    Ok((stats, min_month, this_month))
 }
 
 fn get_stats_in_repos_impl(
@@ -133,13 +144,6 @@ fn sample_commits(repo: &git2::Repository, config: &RepoParsedConfig) -> BTreeMa
             && date_naive < from
         {
             continue;
-        }
-
-        if let Some(to) = config.to
-            && date_naive > to
-        {
-            // the iteration is chronological, once we are past the top date, it's over
-            break;
         }
 
         // as we are iterating in chronological order, the last commit for the period will stay
@@ -258,20 +262,20 @@ fn count_lines_impl(
 fn fill_gaps(
     stats: &mut GlobalStats,
     configs: &HashMap<PathBuf, RepoParsedConfig>,
-) -> (YearMonth, YearMonth) {
-    let (min_month, max_month) = get_extreme_months(stats).expect("there should be at least one month");
+    min_month: YearMonth,
+    this_month: YearMonth,
+) {
     for (repo, historic_stats) in &mut stats.repositories {
-        // Normally, this function will fill gaps at the end of the series with the last known
-        // value, assuming a stale repository. However, a "to" date cut can create the same effect.
-        // To prevent this to happen, be careful and iterate only until the appropriate date
-        // Note: This is not necessary with the "from" date because data is always propagated from
-        // the past to the future, and not the other way around.
-        let effective_max_month = match configs[repo].to {
-            Some(to) => cmp::min(max_month, YearMonth::from_datelike(to)),
-            None => max_month,
+        // Normally, this function will fill gaps at the end of the series until the present time
+        // with the last known value, assuming a stale repository. However, if the repository is
+        // marked as "archived" we take the last commit as the end.
+        let max_month = if configs[repo].archived {
+            *historic_stats.snapshots.keys().max().expect("there should be at least one commit")
+        } else {
+            this_month
         };
 
-        for month in min_month.iter_to(effective_max_month) {
+        for month in min_month.iter_to(max_month) {
             let floor = historic_stats
                 .snapshots
                 .range(..=month)
@@ -281,19 +285,6 @@ fn fill_gaps(
                 .unwrap_or(CodeStats::zero());
             historic_stats.snapshots.entry(month).or_insert(floor);
         }
-    }
-    (min_month, max_month)
-}
-
-fn get_extreme_months(global_stats: &GlobalStats) -> Option<(YearMonth, YearMonth)> {
-    let months: Vec<_> =
-        global_stats.repositories.values().flat_map(|s| s.snapshots.iter()).map(|s| s.0).copied().collect();
-    if months.is_empty() {
-        None
-    } else {
-        let min = months.iter().min().unwrap();
-        let max = months.iter().max().unwrap();
-        Some((*min, *max))
     }
 }
 

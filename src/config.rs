@@ -23,5 +23,5 @@ pub struct RepoConfig {
     pub from_time: Option<NaiveDate>,
 
     #[serde(default)]
-    pub to_time: Option<NaiveDate>,
+    pub archived: bool,
 }
