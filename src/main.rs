@@ -13,7 +13,6 @@ use config::Config;
 use console::style;
 use globset::{GlobBuilder, GlobMatcher};
 use std::cmp;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, process};
@@ -79,7 +78,8 @@ fn main() -> anyhow::Result<()> {
     if repos.is_empty() {
         bail!("No Git repositories found in {}", args.base_dir.display());
     }
-    let repos_with_config = apply_config(&repos, &parsed_config);
+    let repos_with_config =
+        repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
     if args.show_resolved_config {
         println!("{repos_with_config:#?}");
         return Ok(());
@@ -96,14 +96,14 @@ fn main() -> anyhow::Result<()> {
 
 fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
     let config: Config = toml::from_str(file_contents).with_context(|| "cannot parse TOML")?;
-    let mut parsed_config: Vec<(GlobMatcher, RepoParsedConfig)> = Vec::new();
-    for (unparsed_pattern, repo_config) in config.repositories {
+    let mut parsed_config = Vec::new();
+    for (unparsed_pattern, repo_config) in config {
         let pattern = GlobBuilder::new(&unparsed_pattern)
             .literal_separator(true)
             .build()
             .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?
             .compile_matcher();
-        let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
+        let skip_languages = match parse_skip_languages(&repo_config.skip_languages) {
             Ok(languages) => languages,
             Err(err) => {
                 eprintln!("Cannot parse language: {err}");
@@ -143,24 +143,13 @@ fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
     repos
 }
 
-fn apply_config(
-    repos: &[PathBuf],
-    config: &[(GlobMatcher, RepoParsedConfig)],
-) -> HashMap<PathBuf, RepoParsedConfig> {
-    repos
-        .iter()
-        .map(|repo| {
-            let applicable_config: Vec<_> =
-                config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).collect();
-            let (_, applicable_config): (Vec<_>, Vec<_>) = applicable_config.into_iter().cloned().unzip();
-            let merged_config =
-                applicable_config.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge);
-            (repo.to_owned(), merged_config)
-        })
-        .collect()
+fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoParsedConfig)]) -> RepoParsedConfig {
+    let (_, applicable_configs): (Vec<_>, Vec<_>) =
+        config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).cloned().unzip();
+    applicable_configs.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge)
 }
 
-fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
+fn parse_skip_languages(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
     let mut parsed_languages = Vec::new();
     for arg in string_args {
         match tokei::LanguageType::from_name(arg) {
