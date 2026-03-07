@@ -17,6 +17,9 @@ pub struct RepoConfig {
     pub skip_languages: Vec<String>,
 
     #[serde(default)]
+    pub min_lines: Option<u32>,
+
+    #[serde(default)]
     pub from_time: Option<NaiveDate>,
 
     #[serde(default)]
