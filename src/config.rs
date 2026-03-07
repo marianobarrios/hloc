@@ -1,7 +1,7 @@
 use chrono::NaiveDate;
 use std::collections::HashMap;
 
-/// The main configuration structure representing the YAML file
+/// The main configuration structure representing the TOML file
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
     /// Glob pattern
