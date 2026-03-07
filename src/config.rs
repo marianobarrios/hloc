@@ -1,6 +1,10 @@
 use chrono::NaiveDate;
 use std::collections::HashMap;
 
+fn default_min_lines() -> u32 {
+    1
+}
+
 /// The main configuration structure representing the TOML file
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Config {
@@ -16,8 +20,8 @@ pub struct RepoConfig {
     #[serde(default)]
     pub skip_languages: Vec<String>,
 
-    #[serde(default)]
-    pub min_lines: Option<u32>,
+    #[serde(default = "default_min_lines")]
+    pub min_lines: u32,
 
     #[serde(default)]
     pub from_time: Option<NaiveDate>,
