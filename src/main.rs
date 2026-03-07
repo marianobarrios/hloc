@@ -26,12 +26,12 @@ struct RepoParsedConfig {
     skip_languages: Vec<tokei::LanguageType>,
     min_lines: u32,
     from: Option<NaiveDate>,
-    to: Option<NaiveDate>,
+    archived: bool,
 }
 
 impl RepoParsedConfig {
     fn default() -> Self {
-        Self { ignore: false, skip_languages: Vec::new(), min_lines: 1, from: None, to: None }
+        Self { ignore: false, skip_languages: Vec::new(), min_lines: 1, from: None, archived: false }
     }
 
     pub fn merge(mut self, other: &Self) -> Self {
@@ -41,7 +41,7 @@ impl RepoParsedConfig {
             skip_languages: self.skip_languages,
             min_lines: cmp::max(self.min_lines, other.min_lines),
             from: util::merge_options(self.from, other.from, cmp::max),
-            to: util::merge_options(self.to, other.to, cmp::min),
+            archived: self.archived || other.archived,
         }
     }
 }
@@ -117,7 +117,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoPar
                 skip_languages,
                 min_lines: repo_config.min_lines.unwrap_or(1),
                 from: repo_config.from_time,
-                to: repo_config.to_time,
+                archived: repo_config.archived,
             },
         ));
     }
