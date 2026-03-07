@@ -66,7 +66,12 @@ Available settings per pattern:
 Multiple patterns can match a repository; settings are merged (ignore/archived are OR'd, min_lines takes the max, skip_languages are combined)."#;
 
 #[derive(Debug, clap::Parser)]
-#[command(version, about = "Count lines of code across Git repositories over time")]
+#[command(
+    version,
+    about = "Count lines of code across Git repositories over time",
+    long_about = "Scans a directory tree for Git repositories and counts lines of code over their \
+    history. The output is formatted in an interactive HTML report."
+)]
 struct Args {
     #[arg(help = "Base directory in which to search for repositories")]
     base_dir: PathBuf,
