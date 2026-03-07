@@ -13,7 +13,6 @@ use config::Config;
 use console::style;
 use globset::{GlobBuilder, GlobMatcher};
 use std::cmp;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::{fs, process};
@@ -46,21 +45,54 @@ impl RepoParsedConfig {
     }
 }
 
+const CONFIG_HELP: &str = r#"Path to a TOML configuration file.
+
+The file is a map of Unix glob patterns to repository settings:
+
+  ["**/*"]
+  min_lines = 5000
+  skip_languages = ["Xml", "Json"]
+
+  ["**/some-repo"]
+  ignore = true
+
+Available settings per pattern:
+  ignore          (bool)        Exclude matching repositories entirely [default: false]
+  skip_languages  ([string])    Languages to exclude from the line count [default: none]
+  min_lines       (integer)     Minimum lines of code required for a repository to appear in the report [default: 1]
+  from_time       (date)        Only count commits from this date onward (YYYY-MM-DD) [default: none]
+  archived        (bool)        Treat matching repositories as archived. Archived repositories are assumed to finish at the last commit, as opposed to propagating until the current date [default: false]
+
+Multiple patterns can match a repository; settings are merged (ignore/archived are OR'd, min_lines takes the max, skip_languages are combined)."#;
+
 #[derive(Debug, clap::Parser)]
-#[command(version, about, long_about = None)]
+#[command(version, about = "Count lines of code across Git repositories over time")]
 struct Args {
+    #[arg(help = "Base directory in which to search for repositories")]
     base_dir: PathBuf,
 
-    #[arg(short, long, action)]
+    #[arg(short, long, action, help = "Do not print progress to stderr")]
     suppress_progress: bool,
 
-    #[arg(short, long, value_name = "DIRECTORY", default_value = "out")]
+    #[arg(
+        short,
+        long,
+        value_name = "DIRECTORY",
+        default_value = "out",
+        help = "Directory to write the HTML report to"
+    )]
     output_dir: PathBuf,
 
-    #[arg(short, long, value_name = "CONFIG_FILE")]
+    #[arg(
+        short,
+        long,
+        value_name = "CONFIG_FILE",
+        help = "TOML file controlling which repositories to include and additional configuration",
+        long_help = CONFIG_HELP
+    )]
     config: Option<PathBuf>,
 
-    #[arg(long, help = "Show resolved configuration and exit")]
+    #[arg(long, help = "Print the resolved per-repository configuration and exit")]
     show_resolved_config: bool,
 }
 
@@ -79,7 +111,8 @@ fn main() -> anyhow::Result<()> {
     if repos.is_empty() {
         bail!("No Git repositories found in {}", args.base_dir.display());
     }
-    let repos_with_config = apply_config(&repos, &parsed_config);
+    let repos_with_config =
+        repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
     if args.show_resolved_config {
         println!("{repos_with_config:#?}");
         return Ok(());
@@ -96,14 +129,14 @@ fn main() -> anyhow::Result<()> {
 
 fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
     let config: Config = toml::from_str(file_contents).with_context(|| "cannot parse TOML")?;
-    let mut parsed_config: Vec<(GlobMatcher, RepoParsedConfig)> = Vec::new();
-    for (unparsed_pattern, repo_config) in config.repositories {
+    let mut parsed_config = Vec::new();
+    for (unparsed_pattern, repo_config) in config {
         let pattern = GlobBuilder::new(&unparsed_pattern)
             .literal_separator(true)
             .build()
             .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?
             .compile_matcher();
-        let skip_languages = match parse_skip_language(&repo_config.skip_languages) {
+        let skip_languages = match parse_skip_languages(&repo_config.skip_languages) {
             Ok(languages) => languages,
             Err(err) => {
                 eprintln!("Cannot parse language: {err}");
@@ -143,24 +176,13 @@ fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
     repos
 }
 
-fn apply_config(
-    repos: &[PathBuf],
-    config: &[(GlobMatcher, RepoParsedConfig)],
-) -> HashMap<PathBuf, RepoParsedConfig> {
-    repos
-        .iter()
-        .map(|repo| {
-            let applicable_config: Vec<_> =
-                config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).collect();
-            let (_, applicable_config): (Vec<_>, Vec<_>) = applicable_config.into_iter().cloned().unzip();
-            let merged_config =
-                applicable_config.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge);
-            (repo.to_owned(), merged_config)
-        })
-        .collect()
+fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoParsedConfig)]) -> RepoParsedConfig {
+    let (_, applicable_configs): (Vec<_>, Vec<_>) =
+        config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).cloned().unzip();
+    applicable_configs.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge)
 }
 
-fn parse_skip_language(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
+fn parse_skip_languages(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
     let mut parsed_languages = Vec::new();
     for arg in string_args {
         match tokei::LanguageType::from_name(arg) {

@@ -32,13 +32,22 @@ jobs:
       - run: cargo test
 
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: target/release/hloc
+          - os: macos-latest
+            artifact: target/release/hloc
+          - os: windows-latest
+            artifact: target/release/hloc.exe
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release
       - uses: actions/upload-artifact@v4
         with:
-          name: hloc
-          path: target/release/hloc
+          name: hloc-${{ matrix.os }}
+          path: ${{ matrix.artifact }}
           retention-days: 7

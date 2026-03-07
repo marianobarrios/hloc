@@ -5,13 +5,10 @@ fn default_min_lines() -> u32 {
     1
 }
 
-/// The main configuration structure representing the TOML file
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct Config {
-    /// Glob pattern
-    pub repositories: HashMap<String, RepoConfig>,
-}
+/// Key is a glob pattern
+pub type Config = HashMap<String, RepoConfig>;
 
+/// The main configuration structure representing the TOML file
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct RepoConfig {
     #[serde(default)]
