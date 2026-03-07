@@ -1,4 +1,6 @@
 use crate::stats::GlobalStats;
+use crate::util;
+use crate::util::PathExt;
 use crate::year_month::YearMonth;
 use anyhow::Context;
 use rust_embed::Embed;
@@ -57,7 +59,7 @@ fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
                 .map(|month_stats| month_stats.languages.values().sum::<usize>())
                 .collect();
             json!({
-                "label": repo,
+                "label": util::truncate_beginning(repo.to_str_or_panic(), 35, "..."),
                 "data": monthly_data,
                 "borderWidth": 1,
                 "fill": true,
