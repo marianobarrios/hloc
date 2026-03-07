@@ -115,7 +115,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoPar
             RepoParsedConfig {
                 ignore: repo_config.ignore,
                 skip_languages,
-                min_lines: repo_config.min_lines.unwrap_or(1),
+                min_lines: repo_config.min_lines,
                 from: repo_config.from_time,
                 archived: repo_config.archived,
             },
