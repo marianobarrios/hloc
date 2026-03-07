@@ -19,7 +19,7 @@ use std::{fs, process};
 use util::PathExt;
 use walkdir::WalkDir;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 struct RepoParsedConfig {
     ignore: bool,
     skip_languages: Vec<tokei::LanguageType>,
@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
     let repos_with_config =
         repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
     if args.show_resolved_config {
-        println!("{repos_with_config:#?}");
+        println!("{}", toml::to_string(&repos_with_config).expect("resolved config should be serializable"));
         return Ok(());
     }
     let start = Instant::now();
