@@ -65,14 +65,7 @@ fn get_stats_in_repos_impl(
     // code, taking the last commit of each period of time, currently the month.
     bar.set_position(1);
     bar.set_message("sampling commits");
-    let mut samples: HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> = HashMap::new();
-    for (&repo_path, &repo_config) in &filtered_repos {
-        let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
-            .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))?;
-
-        let repo_samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo, repo_config);
-        samples.insert(repo_path.clone(), repo_samples);
-    }
+    let samples = sample_all_commits(base_path, &filtered_repos);
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     bar.set_length(total_samples as u64);
 
@@ -98,6 +91,22 @@ fn get_stats_in_repos_impl(
 
     let total_stats = total_stats.lock_or_panic();
     Ok(GlobalStats { repositories: total_stats.clone() })
+}
+
+fn sample_all_commits(
+    base_path: &Path,
+    filtered_repos: &HashMap<&PathBuf, &RepoParsedConfig>,
+) -> HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> {
+    let samples = Mutex::new(HashMap::new());
+    filtered_repos.par_iter().for_each(|(&repo_path, &repo_config)| {
+        let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
+            .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
+            .unwrap();
+
+        let repo_samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo, repo_config);
+        samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
+    });
+    samples.lock_or_panic().clone()
 }
 
 fn add_current_repo<'r>(currently_counting: &mut LinkedHashSet<&'r Path>, bar: &ProgressBar, name: &'r Path) {
