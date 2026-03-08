@@ -1,8 +1,8 @@
-use crate::RepoParsedConfig;
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
 use crate::year_month::YearMonth;
+use crate::{RepoParsedConfig, display_name};
 use anyhow::Context;
 use chrono::Utc;
 use console::style;
@@ -71,9 +71,11 @@ fn get_stats_in_repos_impl(
 
     // The first level of concurrent is by repository
     filtered_repos.par_iter().for_each(|(&path, &config)| {
-        add_current_repo(&mut currently_counting.lock_or_panic(), &bar, path);
+        let display_name = display_name(base_path, path);
 
-        let stats = get_stats_from_samples(base_path, path, &samples[path], &config.skip_languages, {
+        add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
+
+        let stats = get_stats_from_samples(base_path, &path, &samples[path], &config.skip_languages, {
             let bar = bar.clone();
             move || bar.inc(1)
         });
@@ -81,10 +83,10 @@ fn get_stats_in_repos_impl(
         total_stats.lock_or_panic().insert(path.to_owned(), stats);
 
         let finished_repos = finished_repos.fetch_add(1, Ordering::SeqCst) + 1;
-        remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, path);
+        remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
         let counter = style(format!("[{finished_repos:max_step_width$}/{total_repos}]")).dim();
-        bar.println(format!("{counter} {}", path.display()));
+        bar.println(format!("{counter} {}", display_name.display()));
     });
 
     bar.finish_and_clear();
@@ -109,17 +111,17 @@ fn sample_all_commits(
     samples.lock_or_panic().clone()
 }
 
-fn add_current_repo<'r>(currently_counting: &mut LinkedHashSet<&'r Path>, bar: &ProgressBar, name: &'r Path) {
-    currently_counting.insert(name);
+fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
+    currently_counting.insert(name.to_owned());
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn remove_current_repo(currently_counting: &mut LinkedHashSet<&Path>, bar: &ProgressBar, name: &Path) {
+fn remove_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
     currently_counting.remove(name);
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn list_of_current(currently_counting: &LinkedHashSet<&Path>) -> String {
+fn list_of_current(currently_counting: &LinkedHashSet<PathBuf>) -> String {
     currently_counting.iter().map(|p| p.to_str_or_panic()).collect::<Vec<_>>().join(", ")
 }
 

@@ -125,7 +125,7 @@ fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     let (stats, min_month, max_month) =
         count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress)?;
-    let html_file = charts::write_output(&args.output_dir, &stats, min_month, max_month)?;
+    let html_file = charts::write_output(&args.output_dir, &args.base_dir, &stats, min_month, max_month)?;
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().expect("valid path").to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
@@ -204,4 +204,12 @@ fn is_git_repo(path: &Path) -> bool {
         Ok(repo) => repo.head().is_ok(),
         Err(_) => false,
     }
+}
+
+/// The display name of a repository is in most cases its path relative to the base directory.
+/// However, when there is only one repository in the base path itself, the specific path is just
+/// the empty path, making reports confusing. In those cases we pick the last component of the base
+/// path, which is the name of the directory of the repository itself.
+pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
+    if path.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { path.to_owned() }
 }

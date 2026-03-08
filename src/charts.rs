@@ -1,7 +1,7 @@
 use crate::stats::GlobalStats;
-use crate::util;
 use crate::util::PathExt;
 use crate::year_month::YearMonth;
+use crate::{display_name, util};
 use anyhow::Context;
 use rust_embed::Embed;
 use serde_json::json;
@@ -15,11 +15,12 @@ struct Asset;
 
 pub fn write_output(
     output_dir: &Path,
+    base_dir: &Path,
     stats: &GlobalStats,
     min_month: YearMonth,
     max_month: YearMonth,
 ) -> anyhow::Result<PathBuf> {
-    let by_repo_data = get_by_repo_chart(stats, min_month, max_month);
+    let by_repo_data = get_by_repo_chart(base_dir, stats, min_month, max_month);
     let by_lang_data = get_by_lang_chart(stats, min_month, max_month);
 
     match fs::remove_dir_all(output_dir) {
@@ -47,7 +48,12 @@ fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result
     Ok(())
 }
 
-fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
+fn get_by_repo_chart(
+    base_dir: &Path,
+    stats: &GlobalStats,
+    min_month: YearMonth,
+    max_month: YearMonth,
+) -> serde_json::Value {
     let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
     let dataset: Vec<_> = get_sorted_repos(stats)
         .iter()
@@ -58,8 +64,9 @@ fn get_by_repo_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
                 .values()
                 .map(|month_stats| month_stats.languages.values().sum::<usize>())
                 .collect();
+            let label = util::truncate_beginning(display_name(base_dir, repo).to_str_or_panic(), 35, "...");
             json!({
-                "label": util::truncate_beginning(repo.to_str_or_panic(), 35, "..."),
+                "label": label,
                 "data": monthly_data,
                 "borderWidth": 1,
                 "fill": true,
