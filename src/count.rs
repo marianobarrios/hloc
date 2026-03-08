@@ -1,8 +1,9 @@
+use crate::config::RepoConfig;
+use crate::display_name;
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
 use crate::year_month::YearMonth;
-use crate::{RepoParsedConfig, display_name};
 use anyhow::Context;
 use chrono::Utc;
 use console::style;
@@ -21,7 +22,7 @@ type StatsCache = HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>>;
 
 pub fn get_stats_from_repos(
     base_path: &Path,
-    repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
+    repos_with_config: &HashMap<PathBuf, RepoConfig>,
     suppress_progress: bool,
 ) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
     // count
@@ -43,7 +44,7 @@ pub fn get_stats_from_repos(
 
 fn get_stats_in_repos_impl(
     base_path: &Path,
-    repos_with_config: &HashMap<PathBuf, RepoParsedConfig>,
+    repos_with_config: &HashMap<PathBuf, RepoConfig>,
     suppress_progress: bool,
 ) -> anyhow::Result<GlobalStats> {
     let filtered_repos: HashMap<_, _> =
@@ -97,7 +98,7 @@ fn get_stats_in_repos_impl(
 
 fn sample_all_commits(
     base_path: &Path,
-    filtered_repos: &HashMap<&PathBuf, &RepoParsedConfig>,
+    filtered_repos: &HashMap<&PathBuf, &RepoConfig>,
 ) -> HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> {
     let samples = Mutex::new(HashMap::new());
     filtered_repos.par_iter().for_each(|(&repo_path, &repo_config)| {
@@ -134,7 +135,7 @@ fn create_progress_bar(suppress: bool) -> ProgressBar {
     bar
 }
 
-fn sample_commits(repo: &git2::Repository, config: &RepoParsedConfig) -> BTreeMap<YearMonth, git2::Oid> {
+fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<YearMonth, git2::Oid> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
 
@@ -151,7 +152,7 @@ fn sample_commits(repo: &git2::Repository, config: &RepoParsedConfig) -> BTreeMa
         let time = datetime_from_epoch_seconds(commit.time().seconds());
         let date_naive = time.date_naive();
 
-        if let Some(from) = config.from
+        if let Some(from) = config.from_time
             && date_naive < from
         {
             continue;
@@ -272,7 +273,7 @@ fn count_lines_impl(
 
 fn fill_gaps(
     stats: &mut GlobalStats,
-    configs: &HashMap<PathBuf, RepoParsedConfig>,
+    configs: &HashMap<PathBuf, RepoConfig>,
     min_month: YearMonth,
     this_month: YearMonth,
 ) {
@@ -299,7 +300,7 @@ fn fill_gaps(
     }
 }
 
-fn remove_min_lines_repos(stats: &mut GlobalStats, repos_with_config: &HashMap<PathBuf, RepoParsedConfig>) {
+fn remove_min_lines_repos(stats: &mut GlobalStats, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
     let mut empty_repos = Vec::new();
     for (repo, historic_stats) in &stats.repositories {
         let config = &repos_with_config[repo];

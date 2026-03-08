@@ -7,43 +7,15 @@ mod util;
 mod year_month;
 
 use anyhow::{Context, bail};
-use chrono::NaiveDate;
-use clap::{Parser, command};
-use config::Config;
+use clap::Parser;
+use config::{Config, RepoConfig};
 use console::style;
 use globset::{GlobBuilder, GlobMatcher};
-use std::cmp;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use util::PathExt;
 use walkdir::WalkDir;
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct RepoParsedConfig {
-    ignore: bool,
-    skip_languages: Vec<tokei::LanguageType>,
-    min_lines: u32,
-    from: Option<NaiveDate>,
-    archived: bool,
-}
-
-impl RepoParsedConfig {
-    fn default() -> Self {
-        Self { ignore: false, skip_languages: Vec::new(), min_lines: 1, from: None, archived: false }
-    }
-
-    pub fn merge(mut self, other: &Self) -> Self {
-        self.skip_languages.extend_from_slice(&other.skip_languages);
-        Self {
-            ignore: self.ignore || other.ignore,
-            skip_languages: self.skip_languages,
-            min_lines: cmp::max(self.min_lines, other.min_lines),
-            from: util::merge_options(self.from, other.from, cmp::max),
-            archived: self.archived || other.archived,
-        }
-    }
-}
 
 const CONFIG_HELP: &str = r#"Path to a TOML configuration file.
 
@@ -157,8 +129,8 @@ fn print_language_list() {
     }
 }
 
-fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
-    let config: Config = toml::from_str(file_contents).with_context(|| "cannot parse TOML")?;
+fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoConfig)>> {
+    let config: Config = toml::from_str(file_contents)?;
     let mut parsed_config = Vec::new();
     for (unparsed_pattern, repo_config) in config {
         let pattern = GlobBuilder::new(&unparsed_pattern)
@@ -166,18 +138,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoPar
             .build()
             .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?
             .compile_matcher();
-        let skip_languages = parse_skip_languages(&repo_config.skip_languages)
-            .with_context(|| format!("cannot parse rules for \"{unparsed_pattern}\""))?;
-        parsed_config.push((
-            pattern,
-            RepoParsedConfig {
-                ignore: repo_config.ignore,
-                skip_languages,
-                min_lines: repo_config.min_lines,
-                from: repo_config.from_time,
-                archived: repo_config.archived,
-            },
-        ));
+        parsed_config.push((pattern, repo_config));
     }
     Ok(parsed_config)
 }
@@ -201,24 +162,10 @@ fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
     repos
 }
 
-fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoParsedConfig)]) -> RepoParsedConfig {
+fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoConfig)]) -> RepoConfig {
     let (_, applicable_configs): (Vec<_>, Vec<_>) =
         config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).cloned().unzip();
-    applicable_configs.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge)
-}
-
-fn parse_skip_languages(string_args: &Vec<String>) -> anyhow::Result<Vec<tokei::LanguageType>> {
-    let mut parsed_languages = Vec::new();
-    for arg in string_args {
-        match tokei::LanguageType::from_name(arg) {
-            Some(language) => parsed_languages.push(language),
-            None => bail!(
-                "unknown language \"{arg}\" (for a list of languages use \"{} --languages\")",
-                command!().get_name()
-            ),
-        }
-    }
-    Ok(parsed_languages)
+    applicable_configs.iter().fold(RepoConfig::default(), RepoConfig::merge)
 }
 
 /// Checks whether the supplied path is a Git repo with at least one commit

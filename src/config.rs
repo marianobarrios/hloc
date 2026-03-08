@@ -1,21 +1,19 @@
 use chrono::NaiveDate;
+use clap::command;
+use std::cmp;
 use std::collections::HashMap;
-
-fn default_min_lines() -> u32 {
-    1
-}
 
 /// Key is a glob pattern
 pub type Config = HashMap<String, RepoConfig>;
 
 /// The main configuration structure representing the TOML file
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct RepoConfig {
     #[serde(default)]
     pub ignore: bool,
 
-    #[serde(default)]
-    pub skip_languages: Vec<String>,
+    #[serde(default, deserialize_with = "deserialize_languages")]
+    pub skip_languages: Vec<tokei::LanguageType>,
 
     #[serde(default = "default_min_lines")]
     pub min_lines: u32,
@@ -25,4 +23,43 @@ pub struct RepoConfig {
 
     #[serde(default)]
     pub archived: bool,
+}
+
+impl RepoConfig {
+    pub fn default() -> Self {
+        Self { ignore: false, skip_languages: Vec::new(), min_lines: 1, from_time: None, archived: false }
+    }
+
+    pub fn merge(mut self, other: &Self) -> Self {
+        self.skip_languages.extend_from_slice(&other.skip_languages);
+        Self {
+            ignore: self.ignore || other.ignore,
+            skip_languages: self.skip_languages,
+            min_lines: cmp::max(self.min_lines, other.min_lines),
+            from_time: crate::util::merge_options(self.from_time, other.from_time, cmp::max),
+            archived: self.archived || other.archived,
+        }
+    }
+}
+
+fn deserialize_languages<'de, D>(deserializer: D) -> Result<Vec<tokei::LanguageType>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let strings: Vec<String> = serde::Deserialize::deserialize(deserializer)?;
+    strings
+        .iter()
+        .map(|s| {
+            tokei::LanguageType::from_name(s).ok_or_else(|| {
+                serde::de::Error::custom(format!(
+                    "unknown language \"{s}\" (use {} --languages for a list of supported languages)",
+                    command!().get_name()
+                ))
+            })
+        })
+        .collect()
+}
+
+fn default_min_lines() -> u32 {
+    1
 }
