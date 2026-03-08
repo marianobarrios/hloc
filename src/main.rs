@@ -8,14 +8,14 @@ mod year_month;
 
 use anyhow::{Context, bail};
 use chrono::NaiveDate;
-use clap::Parser;
+use clap::{Parser, command};
 use config::Config;
 use console::style;
 use globset::{GlobBuilder, GlobMatcher};
 use std::cmp;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use std::{fs, process};
 use util::PathExt;
 use walkdir::WalkDir;
 
@@ -73,8 +73,11 @@ Multiple patterns can match a repository; settings are merged (ignore/archived a
     history. The output is formatted in an interactive HTML report."
 )]
 struct Args {
-    #[arg(help = "Base directory in which to search for repositories")]
-    base_dir: PathBuf,
+    #[arg(
+        help = "Base directory in which to search for repositories",
+        required_unless_present = "languages"
+    )]
+    base_dir: Option<PathBuf>,
 
     #[arg(short, long, action, help = "Do not print progress to stderr")]
     suppress_progress: bool,
@@ -99,22 +102,30 @@ struct Args {
 
     #[arg(long, help = "Print the resolved per-repository configuration and exit")]
     show_resolved_config: bool,
+
+    #[arg(long, help = "Print the list of supported languages and exit")]
+    languages: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args = Args::parse();
+    if args.languages {
+        print_language_list();
+        return Ok(());
+    }
+    let base_dir = args.base_dir.expect("base dir should be present if 'languages' was not specified");
     let parsed_config = match args.config {
         Some(config_file) => {
             let file = fs::read_to_string(&config_file)
-                .with_context(|| format!("cannot read file {}", config_file.display()))?;
+                .with_context(|| format!("cannot read file \"{}\"", config_file.display()))?;
             parse_config(&file).with_context(|| format!("cannot parse file {}", config_file.display()))?
         }
         None => Vec::new(),
     };
-    let repos = collect_repositories(&args.base_dir);
+    let repos = collect_repositories(&base_dir);
     if repos.is_empty() {
-        bail!("No Git repositories found in {}", args.base_dir.display());
+        bail!("No Git repositories found in {}", base_dir.display());
     }
     let repos_with_config =
         repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
@@ -124,12 +135,26 @@ fn main() -> anyhow::Result<()> {
     }
     let start = Instant::now();
     let (stats, min_month, max_month) =
-        count::get_stats_from_repos(&args.base_dir, &repos_with_config, args.suppress_progress)?;
-    let html_file = charts::write_output(&args.output_dir, &args.base_dir, &stats, min_month, max_month)?;
+        count::get_stats_from_repos(&base_dir, &repos_with_config, args.suppress_progress)?;
+    let html_file = charts::write_output(&args.output_dir, &base_dir, &stats, min_month, max_month)?;
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().expect("valid path").to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
     Ok(())
+}
+
+fn print_language_list() {
+    let languages = tokei::LanguageType::list();
+    let name_width = languages.iter().map(|(l, _)| l.name().len()).max().unwrap();
+    let header = format!("{:<name_width$}  Extensions", "Language");
+    println!("{}", style(header).bold());
+    for &(language, extensions) in languages {
+        println!(
+            "{name:<name_width$}  {extensions}",
+            name = language.name(),
+            extensions = extensions.join(", ")
+        );
+    }
 }
 
 fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoParsedConfig)>> {
@@ -141,13 +166,8 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoPar
             .build()
             .with_context(|| format!("cannot parse GLOB pattern \"{unparsed_pattern}\""))?
             .compile_matcher();
-        let skip_languages = match parse_skip_languages(&repo_config.skip_languages) {
-            Ok(languages) => languages,
-            Err(err) => {
-                eprintln!("Cannot parse language: {err}");
-                process::exit(1);
-            }
-        };
+        let skip_languages = parse_skip_languages(&repo_config.skip_languages)
+            .with_context(|| format!("cannot parse rules for \"{unparsed_pattern}\""))?;
         parsed_config.push((
             pattern,
             RepoParsedConfig {
@@ -187,12 +207,15 @@ fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoParsedConfig)]) -> Re
     applicable_configs.iter().fold(RepoParsedConfig::default(), RepoParsedConfig::merge)
 }
 
-fn parse_skip_languages(string_args: &Vec<String>) -> Result<Vec<tokei::LanguageType>, String> {
+fn parse_skip_languages(string_args: &Vec<String>) -> anyhow::Result<Vec<tokei::LanguageType>> {
     let mut parsed_languages = Vec::new();
     for arg in string_args {
         match tokei::LanguageType::from_name(arg) {
             Some(language) => parsed_languages.push(language),
-            None => return Err(format!("unknown language {arg}").to_owned()),
+            None => bail!(
+                "unknown language \"{arg}\" (for a list of languages use \"{} --languages\")",
+                command!().get_name()
+            ),
         }
     }
     Ok(parsed_languages)

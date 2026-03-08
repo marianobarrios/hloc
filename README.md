@@ -41,6 +41,7 @@ hloc [OPTIONS] <BASE_DIR>
 | `-c, --config <CONFIG_FILE>` | TOML configuration file (see below) |
 | `-s, --suppress-progress` | Do not print progress to stderr |
 | `--show-resolved-config` | Print the resolved per-repository configuration as TOML and exit |
+| `--languages` | Print the list of supported languages with their file extensions and exit |
 
 ## Configuration file
 
@@ -69,7 +70,7 @@ archived = true
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `ignore` | bool | `false` | Exclude matching repositories from the report entirely |
-| `skip_languages` | \[string\] | `[]` | Languages to exclude from the line count (uses tokei language names, e.g. `"Rust"`, `"TypeScript"`) |
+| `skip_languages` | \[string\] | `[]` | Languages to exclude from the line count (uses tokei language names, e.g. `"Rust"`, `"TypeScript"`; run `hloc --languages` for the full list) |
 | `min_lines` | integer | `1` | Minimum lines of code a repository must reach at any point to appear in the report |
 | `from_time` | date | — | Ignore commits before this date (`YYYY-MM-DD`) |
 | `archived` | bool | `false` | Cap the repository's history at its last commit instead of propagating to the current date |

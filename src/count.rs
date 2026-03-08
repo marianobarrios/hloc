@@ -75,7 +75,7 @@ fn get_stats_in_repos_impl(
 
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
-        let stats = get_stats_from_samples(base_path, &path, &samples[path], &config.skip_languages, {
+        let stats = get_stats_from_samples(base_path, path, &samples[path], &config.skip_languages, {
             let bar = bar.clone();
             move || bar.inc(1)
         });
