@@ -1,5 +1,6 @@
 use crate::config::RepoConfig;
 use crate::display_name;
+use crate::git::{BlobId, CommitId};
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
@@ -18,7 +19,7 @@ use std::sync::{Arc, Mutex};
 
 // relying on the fact that Git oid are stable across commits if the file is identical
 // to avoid counting lines in the same file more than once
-type StatsCache = HashMap<git2::Oid, Option<(tokei::LanguageType, usize)>>;
+type StatsCache = HashMap<BlobId, Option<(tokei::LanguageType, usize)>>;
 
 pub fn get_stats_from_repos(
     base_path: &Path,
@@ -99,14 +100,14 @@ fn get_stats_in_repos_impl(
 fn sample_all_commits(
     base_path: &Path,
     filtered_repos: &HashMap<&PathBuf, &RepoConfig>,
-) -> HashMap<PathBuf, BTreeMap<YearMonth, git2::Oid>> {
+) -> HashMap<PathBuf, BTreeMap<YearMonth, CommitId>> {
     let samples = Mutex::new(HashMap::new());
     filtered_repos.par_iter().for_each(|(&repo_path, &repo_config)| {
         let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
             .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
             .unwrap();
 
-        let repo_samples: BTreeMap<YearMonth, git2::Oid> = sample_commits(&repo, repo_config);
+        let repo_samples: BTreeMap<YearMonth, CommitId> = sample_commits(&repo, repo_config);
         samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
     });
     samples.lock_or_panic().clone()
@@ -135,7 +136,7 @@ fn create_progress_bar(suppress: bool) -> ProgressBar {
     bar
 }
 
-fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<YearMonth, git2::Oid> {
+fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<YearMonth, CommitId> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
 
@@ -146,9 +147,9 @@ fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<Year
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
 
     revwalk.push_head().unwrap();
-    for commit_oid in revwalk {
-        let commit_oid = commit_oid.unwrap();
-        let commit = repo.find_commit(commit_oid).unwrap();
+    for oid in revwalk {
+        let commit_id = CommitId::from_oid(oid.unwrap());
+        let commit = commit_id.to_object(repo);
         let time = datetime_from_epoch_seconds(commit.time().seconds());
         let date_naive = time.date_naive();
 
@@ -160,7 +161,7 @@ fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<Year
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(YearMonth::from_datelike(time), commit_oid);
+        samples.insert(YearMonth::from_datelike(time), commit_id);
     }
     samples
 }
@@ -168,7 +169,7 @@ fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<Year
 fn get_stats_from_samples<F>(
     base_path: &Path,
     repo_path: &Path,
-    samples: &BTreeMap<YearMonth, git2::Oid>,
+    samples: &BTreeMap<YearMonth, CommitId>,
     skip_languages: &[tokei::LanguageType],
     update_reporter: F,
 ) -> HistoricStats
@@ -183,14 +184,14 @@ where
     // necessary for when a couple of repositories are much bigger than the rest, or when simply
     // analyzing only one.
     rayon::scope(|s| {
-        for (&date, &commit_oid) in samples {
+        for (&date, &commit_id) in samples {
             s.spawn({
                 let snapshots = snapshots.clone();
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
                     let stats =
-                        get_stats_from_commit(base_path, repo_path, commit_oid, skip_languages, &cache);
+                        get_stats_from_commit(base_path, repo_path, commit_id, skip_languages, &cache);
                     snapshots.lock_or_panic().insert(date, stats);
 
                     // a commit was finished, ping the reported to increase the progress
@@ -205,7 +206,7 @@ where
 fn get_stats_from_commit(
     base_path: &Path,
     repo_path: &Path,
-    commit_oid: git2::Oid,
+    commit_id: CommitId,
     skip_languages: &[tokei::LanguageType],
     cache: &Mutex<StatsCache>,
 ) -> CodeStats {
@@ -213,15 +214,15 @@ fn get_stats_from_commit(
     // a Git repository concurrently in Rust (read only).
     let repo = git2::Repository::open(base_path.join(repo_path)).unwrap();
 
-    let commit = repo.find_commit(commit_oid).unwrap();
+    let commit = commit_id.to_object(&repo);
     let tree = commit.tree().unwrap();
     let mut languages = HashMap::new();
     tree.walk(TreeWalkMode::PreOrder, |_, entry| {
         // only process files, not other object types
         if let Some(ObjectType::Blob) = entry.kind() {
-            let blob_oid = entry.id();
+            let blob_id = BlobId::from_oid(entry.id());
             let file_name = Path::new(entry.name().unwrap());
-            let result = count_lines(&repo, blob_oid, file_name, skip_languages, cache);
+            let result = count_lines(&repo, blob_id, file_name, skip_languages, cache);
 
             // merge result with the global count
             if let Some((language, lines)) = result {
@@ -236,31 +237,31 @@ fn get_stats_from_commit(
 
 fn count_lines(
     repo: &git2::Repository,
-    blob_oid: git2::Oid,
+    blob_id: BlobId,
     file_name: &Path,
     skip_languages: &[tokei::LanguageType],
     cache: &Mutex<StatsCache>,
 ) -> Option<(tokei::LanguageType, usize)> {
-    if let Some(existing) = cache.lock_or_panic().get(&blob_oid).copied() {
+    if let Some(existing) = cache.lock_or_panic().get(&blob_id).copied() {
         existing
     } else {
-        let stats = count_lines_impl(repo, blob_oid, file_name, skip_languages);
-        cache.lock_or_panic().insert(blob_oid, stats);
+        let stats = count_lines_impl(repo, blob_id, file_name, skip_languages);
+        cache.lock_or_panic().insert(blob_id, stats);
         stats
     }
 }
 
 fn count_lines_impl(
     repo: &git2::Repository,
-    blob_oid: git2::Oid,
+    blob_id: BlobId,
     file_name: &Path,
     skip_languages: &[tokei::LanguageType],
 ) -> Option<(tokei::LanguageType, usize)> {
-    if let Some(lang) = languages::detect_language(repo, blob_oid, file_name)
+    if let Some(lang) = languages::detect_language(repo, blob_id, file_name)
         && !skip_languages.contains(&lang)
     {
         // this is the most expensive step with respect to Git, postponing it until it's really needed
-        let blob = repo.find_blob(blob_oid).unwrap();
+        let blob = blob_id.to_object(repo);
 
         // actual count
         let stats = lang.parse_from_slice(blob.content(), &tokei::Config::default());

@@ -1,3 +1,4 @@
+use crate::git::BlobId;
 use crate::util::{OsStrExt, PathExt};
 use std::io::BufRead;
 use std::path::Path;
@@ -5,7 +6,7 @@ use tokei::LanguageType::*;
 
 pub fn detect_language(
     repo: &git2::Repository,
-    blob_oid: git2::Oid,
+    blob_oid: BlobId,
     file_name: &Path,
 ) -> Option<tokei::LanguageType> {
     detect_language_from_file_name(file_name).or_else(|| {
@@ -15,7 +16,7 @@ pub fn detect_language(
             // Note: This function will be called again when doing the actual count, that could be
             // avoided introducing some ugliness in the code. However, in practice the effect is
             // small because shebang detection is done infrequently.
-            let blob = repo.find_blob(blob_oid).unwrap();
+            let blob = blob_oid.to_object(repo);
 
             detect_language_from_shebang(blob.content())
         }

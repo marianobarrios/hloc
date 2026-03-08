@@ -1,6 +1,7 @@
 mod charts;
 mod config;
 mod count;
+mod git;
 mod languages;
 mod stats;
 mod util;
