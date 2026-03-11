@@ -11,6 +11,8 @@ pub fn datetime_from_epoch_seconds(seconds: i64) -> DateTime<Utc> {
 }
 
 pub trait MutexExt<T> {
+    /// `Mutex::lock` returns a result that is almost always unwrapped right away without any
+    /// extra treatment. This method does that internally, to avoid polluting client code.
     fn lock_or_panic(&self) -> MutexGuard<'_, T>;
 }
 
