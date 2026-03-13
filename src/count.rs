@@ -1,3 +1,4 @@
+use crate::commit_trie::HistoryTrie;
 use crate::config::RepoConfig;
 use crate::display_name;
 use crate::git::{BlobId, CommitId};
@@ -12,7 +13,7 @@ use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use linked_hash_set::LinkedHashSet;
 use rayon::prelude::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,10 +25,11 @@ type StatsCache = HashMap<BlobId, Option<(tokei::LanguageType, usize)>>;
 pub fn get_stats_from_repos(
     base_path: &Path,
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
+    detect_forks: bool,
     suppress_progress: bool,
 ) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
     // count
-    let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, suppress_progress)?;
+    let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, detect_forks, suppress_progress)?;
 
     // post-processing
     let min_month = stats
@@ -46,6 +48,7 @@ pub fn get_stats_from_repos(
 fn get_stats_in_repos_impl(
     base_path: &Path,
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
+    detect_forks: bool,
     suppress_progress: bool,
 ) -> anyhow::Result<GlobalStats> {
     let filtered_repos: HashMap<_, _> =
@@ -67,7 +70,12 @@ fn get_stats_in_repos_impl(
     // code, taking the last commit of each period of time, currently the month.
     bar.set_position(1);
     bar.set_message("sampling commits");
-    let samples = sample_all_commits(base_path, &filtered_repos);
+    let mut samples = sample_all_commits(base_path, &filtered_repos);
+
+    if detect_forks {
+        remove_commits_from_forks(&mut samples);
+    }
+
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     bar.set_length(total_samples as u64);
 
@@ -95,6 +103,25 @@ fn get_stats_in_repos_impl(
 
     let total_stats = total_stats.lock_or_panic();
     Ok(GlobalStats { repositories: total_stats.clone() })
+}
+
+/// Detects forks of project to avoid double counting.
+/// Forked project share identical histories until the forking point. Those commits have identical
+/// IDs and can be identified. This function detects such shared histories, removes them from all
+/// involved repositories except one (chosen alphabetically).
+fn remove_commits_from_forks(samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>) {
+    let mut history_trie = HistoryTrie::new();
+    for (repo, commit_map) in samples.iter() {
+        let commits: Vec<_> = commit_map.values().copied().collect();
+        history_trie.insert(repo, &commits);
+    }
+
+    let result = history_trie.get_all_sequences_iterative();
+
+    for (repo, repo_samples) in samples.iter_mut() {
+        let remaining_commits: HashSet<CommitId> = HashSet::from_iter(result[repo].clone().into_iter());
+        repo_samples.retain(|_, commit| remaining_commits.contains(commit));
+    }
 }
 
 fn sample_all_commits(
