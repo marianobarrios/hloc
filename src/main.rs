@@ -1,4 +1,5 @@
 mod charts;
+mod commit_trie;
 mod config;
 mod count;
 mod git;
@@ -73,6 +74,9 @@ struct Args {
     )]
     config: Option<PathBuf>,
 
+    #[arg(short, long, action, help = "Do not try to detect forks to avoid double counting")]
+    no_fork_detection: bool,
+
     #[arg(long, help = "Print the resolved per-repository configuration and exit")]
     show_resolved_config: bool,
 
@@ -107,8 +111,12 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let start = Instant::now();
-    let (stats, min_month, max_month) =
-        count::get_stats_from_repos(&base_dir, &repos_with_config, args.suppress_progress)?;
+    let (stats, min_month, max_month) = count::get_stats_from_repos(
+        &base_dir,
+        &repos_with_config,
+        !args.no_fork_detection,
+        args.suppress_progress,
+    )?;
     let html_file = charts::write_output(&args.output_dir, &base_dir, &stats, min_month, max_month)?;
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
     let url = format!("file://{}", html_file.canonicalize().expect("valid path").to_str_or_panic());

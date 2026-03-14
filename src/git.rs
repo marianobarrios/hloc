@@ -1,13 +1,27 @@
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+use std::fmt::Debug;
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct CommitId(git2::Oid);
 
 impl CommitId {
+    #[cfg(test)]
+    pub fn from_hex_string(hex_string: &str) -> Result<Self, git2::Error> {
+        Ok(Self::from_oid(git2::Oid::from_str(hex_string)?))
+    }
+
     pub fn from_oid(oid: git2::Oid) -> Self {
         Self(oid)
     }
 
     pub fn to_object<'r>(self, repo: &'r git2::Repository) -> git2::Commit<'r> {
         repo.find_commit(self.0).unwrap()
+    }
+}
+
+impl Debug for CommitId {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let chars: String = self.0.to_string().chars().take(8).collect();
+        write!(fmt, "{chars}")
     }
 }
 
