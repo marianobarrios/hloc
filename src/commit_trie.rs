@@ -1,4 +1,5 @@
 use crate::git::CommitId;
+use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -15,8 +16,29 @@ impl HistoryTrie {
 
 #[derive(Debug, Default)]
 struct TrieNode {
-    repos: Vec<PathBuf>,
+    repos: Vec<Repo>,
     children: HashMap<CommitRef, TrieNode>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Repo {
+    path: PathBuf,
+    priority: i32,
+}
+
+impl Ord for Repo {
+    /// A lower ordering means that the repository is considered the original in a fork.
+    /// Using the supplied value, and breaking ties with the alphabetical soring of the name, for
+    /// stability.
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.priority, &self.path).cmp(&(other.priority, &other.path))
+    }
+}
+
+impl PartialOrd for Repo {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Debug, Copy, Clone, Hash)]
@@ -43,19 +65,19 @@ impl PartialEq<Self> for CommitRef {
 impl Eq for CommitRef {}
 
 impl HistoryTrie {
-    pub fn insert(&mut self, repo: &Path, commits: &[CommitId]) {
+    pub fn insert(&mut self, repo: &Path, priority: i32, commits: &[CommitId]) {
         assert!(!commits.is_empty());
         let mut current_node = &mut self.root;
 
         for &commit in commits {
             // Navigate to the child node, creating it if it doesn't exist.
             let node = current_node.children.entry(CommitRef::GitCommit(commit)).or_default();
-            node.repos.push(repo.to_owned());
+            node.repos.push(Repo { path: repo.to_owned(), priority });
             current_node = node;
         }
 
         let mut node = TrieNode::default();
-        node.repos.push(repo.to_owned());
+        node.repos.push(Repo { path: repo.to_owned(), priority });
         let existing = current_node.children.insert(CommitRef::EoH, node);
         assert!(existing.is_none());
     }
@@ -75,12 +97,12 @@ impl HistoryTrie {
             if let Some(CommitRef::EoH) = path.last() {
                 let converted_path = Self::convert_path(&path);
                 for repo in &node.repos {
-                    results.insert(repo.to_owned(), converted_path.clone());
+                    results.insert(repo.path.to_owned(), converted_path.clone());
                 }
             }
 
             let mut children: Vec<_> = node.children.iter().collect();
-            children.sort_by_key(|&(_, node)| Self::choose_repo(&node.repos));
+            children.sort_by_key(|&(_, node)| node.repos.iter().min().unwrap());
 
             if let Some(&(&commit, node)) = children.first() {
                 // First (chosen) child, add complete path to queue
@@ -105,11 +127,6 @@ impl HistoryTrie {
             result.push(*commit);
         }
         result
-    }
-
-    fn choose_repo(repos: &[PathBuf]) -> PathBuf {
-        assert!(!repos.is_empty());
-        repos.iter().min().unwrap().clone()
     }
 }
 
@@ -204,7 +221,7 @@ mod tests {
     fn do_test(repos: &HashMap<PathBuf, Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
         let mut trie = HistoryTrie::new();
         for (repo, commits) in repos {
-            trie.insert(repo.as_ref(), &commits);
+            trie.insert(repo.as_ref(), 0, &commits);
         }
         assert_eq!(&trie.get_all_sequences_iterative(), expected);
     }

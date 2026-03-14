@@ -73,7 +73,11 @@ fn get_stats_in_repos_impl(
     let mut samples = sample_all_commits(base_path, &filtered_repos);
 
     if detect_forks {
-        remove_commits_from_forks(&mut samples);
+        let priorities: HashMap<_, _> = repos_with_config
+            .iter()
+            .map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0)))
+            .collect();
+        remove_commits_from_forks(&mut samples, &priorities);
     }
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
@@ -109,11 +113,15 @@ fn get_stats_in_repos_impl(
 /// Forked project share identical histories until the forking point. Those commits have identical
 /// IDs and can be identified. This function detects such shared histories, removes them from all
 /// involved repositories except one (chosen alphabetically).
-fn remove_commits_from_forks(samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>) {
+fn remove_commits_from_forks(
+    samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>,
+    priorities: &HashMap<PathBuf, i32>,
+) {
     let mut history_trie = HistoryTrie::new();
     for (repo, commit_map) in samples.iter() {
         let commits: Vec<_> = commit_map.values().copied().collect();
-        history_trie.insert(repo, &commits);
+        let priority = priorities[repo];
+        history_trie.insert(repo, priority, &commits);
     }
 
     let result = history_trie.get_all_sequences_iterative();
