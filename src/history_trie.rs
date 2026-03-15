@@ -200,8 +200,8 @@ mod tests {
         // Unrelated histories
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit3]),
-                (repo2.clone(), vec![commit4, commit5]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.clone(), 1), vec![commit4, commit5]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -212,8 +212,8 @@ mod tests {
         // Fork is a strict superset
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit3]),
-                (repo2.clone(), vec![commit1, commit2, commit3, commit4]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.clone(), 1), vec![commit1, commit2, commit3, commit4]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -224,8 +224,8 @@ mod tests {
         // "Fork" is a strict subset
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit3, commit4]),
-                (repo2.clone(), vec![commit1, commit2, commit3]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit3, commit4]),
+                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3, commit4]),
@@ -236,8 +236,8 @@ mod tests {
         // Identical histories
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit3]),
-                (repo2.clone(), vec![commit1, commit2, commit3]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([(repo1.clone(), vec![commit1, commit2, commit3]), (repo2.clone(), vec![])]),
         );
@@ -245,8 +245,8 @@ mod tests {
         // Diverging histories - Shorter is kept
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit3]),
-                (repo2.clone(), vec![commit1, commit2, commit4, commit5]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.clone(), 1), vec![commit1, commit2, commit4, commit5]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -257,8 +257,8 @@ mod tests {
         // Diverging histories - Longer is kept
         do_test(
             &HashMap::from_iter([
-                (repo1.clone(), vec![commit1, commit2, commit4, commit5]),
-                (repo2.clone(), vec![commit1, commit2, commit3]),
+                ((repo1.clone(), 0), vec![commit1, commit2, commit4, commit5]),
+                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit4, commit5]),
@@ -267,10 +267,10 @@ mod tests {
         );
     }
 
-    fn do_test(repos: &HashMap<PathBuf, Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
+    fn do_test(repos: &HashMap<(PathBuf, i32), Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
         let mut trie = HistoryTrie::new();
-        for (repo, commits) in repos {
-            trie.insert(repo.as_ref(), 0, &commits);
+        for ((repo, priority), commits) in repos {
+            trie.insert(repo.as_ref(), *priority, &commits);
         }
         assert_eq!(&trie.get_all_sequences_iterative(), expected);
     }
