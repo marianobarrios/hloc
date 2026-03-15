@@ -1,5 +1,5 @@
 mod charts;
-mod commit_trie;
+mod history_trie;
 mod config;
 mod count;
 mod git;

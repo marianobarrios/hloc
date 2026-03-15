@@ -1,4 +1,4 @@
-use crate::commit_trie::HistoryTrie;
+use crate::history_trie::HistoryTrie;
 use crate::config::RepoConfig;
 use crate::display_name;
 use crate::git::{BlobId, CommitId};
