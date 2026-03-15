@@ -1,7 +1,7 @@
-use crate::history_trie::HistoryTrie;
 use crate::config::RepoConfig;
 use crate::display_name;
 use crate::git::{BlobId, CommitId};
+use crate::history_trie::HistoryTrie;
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};

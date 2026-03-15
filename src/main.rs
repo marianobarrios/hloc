@@ -1,8 +1,8 @@
 mod charts;
-mod history_trie;
 mod config;
 mod count;
 mod git;
+mod history_trie;
 mod languages;
 mod stats;
 mod util;
