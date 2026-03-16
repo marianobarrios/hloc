@@ -16,15 +16,9 @@ pub struct HistoricStats {
 }
 
 /// Statistics of a single repository at a single point in time
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct CodeStats {
     pub languages: HashMap<tokei::LanguageType, usize>,
-}
-
-impl CodeStats {
-    pub fn zero() -> Self {
-        Self { languages: HashMap::new() }
-    }
 }
 
 impl AddAssign for CodeStats {
