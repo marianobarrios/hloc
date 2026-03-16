@@ -1,5 +1,6 @@
 use chrono::Datelike;
 use std::fmt::{Display, Formatter};
+use std::iter::FusedIterator;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct YearMonth {
@@ -51,3 +52,5 @@ impl Iterator for YearMonthInclusiveIter {
         Some(result)
     }
 }
+
+impl FusedIterator for YearMonthInclusiveIter {}
