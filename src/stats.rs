@@ -11,7 +11,7 @@ pub struct Stats {
 /// Statistics of a single repository across time
 #[derive(Debug)]
 pub struct HistoricStats {
-    pub snapshots: BTreeMap<YearMonth, CodeStats>,
+    pub periods: BTreeMap<YearMonth, CodeStats>,
 }
 
 /// Statistics of a single repository at a single point in time

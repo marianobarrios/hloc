@@ -59,15 +59,15 @@ fn get_by_repo_chart(
         .iter()
         .map(|repo| {
             let historic_stats = &stats.repositories[repo];
-            let monthly_data: Vec<_> = historic_stats
-                .snapshots
+            let period_data: Vec<_> = historic_stats
+                .periods
                 .values()
-                .map(|month_stats| month_stats.languages.values().sum::<usize>())
+                .map(|period_stats| period_stats.languages.values().sum::<usize>())
                 .collect();
             let label = util::truncate_beginning(display_name(base_dir, repo).to_str_or_panic(), 35, "...");
             json!({
                 "label": label,
-                "data": monthly_data,
+                "data": period_data,
                 "borderWidth": 1,
                 "fill": true,
             })
@@ -86,14 +86,14 @@ fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) 
 
     let mut per_lang_data = BTreeMap::new();
     for lang in &all_languages {
-        let mut monthly_data = BTreeMap::new();
+        let mut period_data = BTreeMap::new();
         for repo_stats in stats.repositories.values() {
-            for (&month, monthly_stats) in &repo_stats.snapshots {
-                let lang_stats = monthly_stats.languages.get(lang).unwrap_or(&0);
-                *monthly_data.entry(month).or_insert(0) += lang_stats;
+            for (&month, period_stats) in &repo_stats.periods {
+                let lang_stats = period_stats.languages.get(lang).unwrap_or(&0);
+                *period_data.entry(month).or_insert(0) += lang_stats;
             }
         }
-        per_lang_data.insert(lang, monthly_data);
+        per_lang_data.insert(lang, period_data);
     }
 
     let dataset: Vec<_> = all_languages
@@ -119,7 +119,7 @@ fn get_sorted_languages(global_stats: &Stats) -> Vec<tokei::LanguageType> {
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit =
-            historic_stats.snapshots.values().last().expect("repository should have at least one commit");
+            historic_stats.periods.values().last().expect("repository should have at least one commit");
         for (language, line_count) in &last_commit.languages {
             *language_map.entry(*language).or_insert(0) += line_count;
         }
@@ -134,7 +134,7 @@ fn get_sorted_repos(global_stats: &Stats) -> Vec<PathBuf> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in &global_stats.repositories {
         let last_commit =
-            historic_stats.snapshots.values().last().expect("repository should have at least one commit");
+            historic_stats.periods.values().last().expect("repository should have at least one commit");
         let total: usize = last_commit.languages.values().sum();
         repo_map.insert(repo.clone(), total);
     }

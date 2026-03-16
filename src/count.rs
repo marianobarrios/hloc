@@ -35,7 +35,7 @@ pub fn get_stats_from_repos(
     let min_month = stats
         .repositories
         .values()
-        .flat_map(|s| s.snapshots.keys().copied())
+        .flat_map(|s| s.periods.keys().copied())
         .min()
         .expect("there should be at least one month");
     let this_month = YearMonth::from_datelike(Utc::now());
@@ -210,7 +210,7 @@ fn get_stats_from_samples<F>(
 where
     F: Fn() + Send + Sync,
 {
-    let snapshots = Arc::new(Mutex::new(BTreeMap::new()));
+    let period_stats = Arc::new(Mutex::new(BTreeMap::new()));
     let cache: Arc<Mutex<StatsCache>> = Arc::new(Mutex::new(HashMap::new()));
     let update_reporter = Arc::new(update_reporter);
 
@@ -220,7 +220,7 @@ where
     rayon::scope(|s| {
         for (&date, &commit_id) in samples {
             s.spawn({
-                let snapshots = snapshots.clone();
+                let snapshots = period_stats.clone();
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
@@ -232,7 +232,7 @@ where
             });
         }
     });
-    HistoricStats { snapshots: Arc::try_unwrap(snapshots).unwrap().into_inner().unwrap() }
+    HistoricStats { periods: Arc::try_unwrap(period_stats).unwrap().into_inner().unwrap() }
 }
 
 fn get_stats_from_commit(
@@ -315,15 +315,15 @@ fn fill_gaps(
         // with the last known value, assuming a stale repository. However, if the repository is
         // marked as "archived" we take the last commit as the end.
         let max_month = if configs[repo].archived {
-            *historic_stats.snapshots.keys().max().expect("there should be at least one commit")
+            *historic_stats.periods.keys().max().expect("there should be at least one commit")
         } else {
             this_month
         };
 
         for month in min_month.iter_to(max_month) {
             let floor =
-                historic_stats.snapshots.range(..=month).last().map(|(_, v)| v).cloned().unwrap_or_default();
-            historic_stats.snapshots.entry(month).or_insert(floor);
+                historic_stats.periods.range(..=month).last().map(|(_, v)| v).cloned().unwrap_or_default();
+            historic_stats.periods.entry(month).or_insert(floor);
         }
     }
 }
@@ -335,6 +335,6 @@ fn fill_gaps(
 fn remove_min_lines_repos(stats: &mut Stats, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
     stats.repositories.retain(|repo, historic_stats| {
         let min_lines = repos_with_config[repo].min_lines as usize;
-        historic_stats.snapshots.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
+        historic_stats.periods.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
     });
 }
