@@ -25,16 +25,10 @@ use std::rc::Rc;
 ///
 /// Each inserted repository occupies a root-to-leaf path in the trie. Shared prefixes between
 /// paths represent shared commit history (forks).
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct HistoryTrie {
     all_repos: HashMap<PathBuf, Rc<Repo>>,
     root: TrieNode,
-}
-
-impl HistoryTrie {
-    pub fn new() -> Self {
-        Self { all_repos: HashMap::new(), root: TrieNode::default() }
-    }
 }
 
 /// A single node in the [`HistoryTrie`].
@@ -110,8 +104,13 @@ impl HistoryTrie {
         priority: i32,
         commits: &[CommitId],
     ) -> Result<(), anyhow::Error> {
-        assert!(!commits.is_empty());
+        if commits.is_empty() {
+            bail!("commit sequence is empty");
+        }
+
+        // using an `Rc` to avoid cloning the repository name for each commit
         let repo = Rc::new(Repo { path: repo_path.to_owned(), priority });
+
         let previous = self.all_repos.insert(repo_path.to_owned(), repo.clone());
         if previous.is_some() {
             bail!("repository {repo_path:?} already inserted");
@@ -129,7 +128,10 @@ impl HistoryTrie {
         let mut node = TrieNode::default();
         node.repos.push(repo.clone());
         let existing = current_node.children.insert(CommitRef::EoH, node);
+
+        // `CommitRef::EoH` are never equal to each other
         assert!(existing.is_none());
+
         Ok(())
     }
 
@@ -283,7 +285,7 @@ mod tests {
     }
 
     fn do_test(repos: &HashMap<(&Path, i32), Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
-        let mut trie = HistoryTrie::new();
+        let mut trie = HistoryTrie::default();
         for ((repo, priority), commits) in repos {
             trie.insert(repo, *priority, &commits).unwrap();
         }

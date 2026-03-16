@@ -117,7 +117,7 @@ fn remove_commits_from_forks(
     samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>,
     priorities: &HashMap<PathBuf, i32>,
 ) {
-    let mut history_trie = HistoryTrie::new();
+    let mut history_trie = HistoryTrie::default();
     for (repo, commit_map) in samples.iter() {
         let commits: Vec<_> = commit_map.values().copied().collect();
         let priority = priorities[repo];
