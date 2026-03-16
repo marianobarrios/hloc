@@ -31,12 +31,12 @@ cargo run --release -- <BASE_DIR>
 ## Usage
 
 ```
-hloc [OPTIONS] <BASE_DIR>
+hloc [OPTIONS] <BASE_DIR>...
 ```
 
 | Argument / Option | Description |
 |---|---|
-| `<BASE_DIR>` | Root directory to search for Git repositories (recursive) |
+| `<BASE_DIR>...` | One or more root directories to search for Git repositories (recursive) |
 | `-o, --output-dir <DIRECTORY>` | Where to write the HTML report (default: `out/`) |
 | `-c, --config <CONFIG_FILE>` | TOML configuration file (see below) |
 | `-s, --suppress-progress` | Do not print progress to stderr |

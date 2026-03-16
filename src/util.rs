@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
@@ -61,6 +61,29 @@ pub fn truncate_beginning(string: &str, max_graphemes: usize, ellipsis: &str) ->
     if truncated.len() < string.len() { ellipsis.to_owned() + &truncated } else { truncated }
 }
 
+/// Returns the longest common ancestor directory of all the given paths.
+///
+/// Walks the path component by component, keeping only the prefix that is identical across all
+/// inputs. For example, `/a/b/c` and `/a/b/d` share the prefix `/a/b`.
+pub fn longest_common_subpath<T>(dirs: &[T]) -> PathBuf
+where
+    T: AsRef<Path>,
+{
+    assert!(!dirs.is_empty());
+    // Start with all components of the first path as the candidate common prefix.
+    let mut common: Vec<_> = dirs[0].as_ref().components().collect();
+    for dir in &dirs[1..] {
+        // Shorten the candidate to the matching prefix with this path.
+        common = common
+            .iter()
+            .zip(dir.as_ref().components())
+            .take_while(|&(a, b)| *a == b)
+            .map(|(&a, _)| a)
+            .collect();
+    }
+    common.iter().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +94,15 @@ mod tests {
         assert_eq!(truncate_beginning("abc", 2, "..."), "...bc");
         assert_eq!(truncate_beginning("abc", 3, "..."), "abc");
         assert_eq!(truncate_beginning("abcd", 3, "..."), "...bcd");
+    }
+
+    #[test]
+    fn test_longest_common_subpath() {
+        assert_eq!(longest_common_subpath(&["/a/b/c"]), PathBuf::from("/a/b/c"));
+        assert_eq!(longest_common_subpath(&["/a/b", "/a/b"]), PathBuf::from("/a/b"));
+        assert_eq!(longest_common_subpath(&["/a/b/c", "/a/b/d"]), PathBuf::from("/a/b"));
+        assert_eq!(longest_common_subpath(&["/a/b", "/c/d"]), PathBuf::from("/"));
+        assert_eq!(longest_common_subpath(&["/a/b", "/a/b/c"]), PathBuf::from("/a/b"));
+        assert_eq!(longest_common_subpath(&["/a/b/c", "/a/b/d", "/a/b/e"]), PathBuf::from("/a/b"));
     }
 }
