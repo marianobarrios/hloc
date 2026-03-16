@@ -42,6 +42,7 @@ const options = {
         },
         y: {
             stacked: true,
+            min: 0,
             title: {
                 display: true,
                 text: 'Lines'
