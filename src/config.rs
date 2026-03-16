@@ -32,18 +32,20 @@ pub struct RepoConfig {
     pub fork_priority: Option<i32>,
 }
 
-impl RepoConfig {
-    pub fn default() -> Self {
+impl Default for RepoConfig {
+    fn default() -> Self {
         Self {
             ignore: false,
-            skip_languages: Vec::new(),
+            skip_languages: vec![],
             min_lines: 1,
             from_time: None,
             archived: false,
             fork_priority: None,
         }
     }
+}
 
+impl RepoConfig {
     pub fn merge(mut self, other: &Self) -> Self {
         self.skip_languages.extend_from_slice(&other.skip_languages);
         Self {

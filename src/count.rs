@@ -324,13 +324,8 @@ fn fill_gaps(
         };
 
         for month in min_month.iter_to(max_month) {
-            let floor = historic_stats
-                .snapshots
-                .range(..=month)
-                .last()
-                .map(|(_, v)| v)
-                .cloned()
-                .unwrap_or(CodeStats::zero());
+            let floor =
+                historic_stats.snapshots.range(..=month).last().map(|(_, v)| v).cloned().unwrap_or_default();
             historic_stats.snapshots.entry(month).or_insert(floor);
         }
     }
