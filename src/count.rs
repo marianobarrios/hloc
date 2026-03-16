@@ -4,10 +4,9 @@ use crate::git::{BlobId, CommitId};
 use crate::history_trie::HistoryTrie;
 use crate::languages;
 use crate::stats::{CodeStats, HistoricStats, Stats};
+use crate::time_period::TimePeriod;
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
-use crate::year_month::YearMonth;
 use anyhow::Context;
-use chrono::Utc;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
@@ -22,35 +21,35 @@ use std::sync::{Arc, Mutex};
 // to avoid counting lines in the same file more than once
 type StatsCache = HashMap<BlobId, Option<(tokei::LanguageType, usize)>>;
 
-pub fn get_stats_from_repos(
+pub fn get_stats_from_repos<P: TimePeriod>(
     base_path: &Path,
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<(Stats, YearMonth, YearMonth)> {
+) -> anyhow::Result<(Stats<P>, P, P)> {
     // count
     let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, detect_forks, suppress_progress)?;
 
     // post-processing
-    let min_month = stats
+    let min_period = stats
         .repositories
         .values()
-        .flat_map(|s| s.snapshots.keys().copied())
+        .flat_map(|s| s.periods.keys().copied())
         .min()
-        .expect("there should be at least one month");
-    let this_month = YearMonth::from_datelike(Utc::now());
-    fill_gaps(&mut stats, repos_with_config, min_month, this_month);
+        .expect("there should be at least one period");
+    let this_period = P::current();
+    fill_gaps(&mut stats, repos_with_config, min_period, this_period);
     remove_min_lines_repos(&mut stats, repos_with_config);
 
-    Ok((stats, min_month, this_month))
+    Ok((stats, min_period, this_period))
 }
 
-fn get_stats_in_repos_impl(
+fn get_stats_in_repos_impl<P: TimePeriod>(
     base_path: &Path,
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<Stats> {
+) -> anyhow::Result<Stats<P>> {
     let filtered_repos: HashMap<_, _> =
         repos_with_config.iter().filter(|&(_, config)| !config.ignore).collect();
 
@@ -67,10 +66,10 @@ fn get_stats_in_repos_impl(
     let bar = create_progress_bar(suppress_progress);
 
     // inspecting all commit would be too slow and pointless for a slow-moving metric like lines of
-    // code, taking the last commit of each period of time, currently the month.
+    // code, taking the last commit of each period of time.
     bar.set_position(1);
     bar.set_message("sampling commits");
-    let mut samples = sample_all_commits(base_path, &filtered_repos);
+    let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, &filtered_repos);
 
     if detect_forks {
         let priorities: HashMap<_, _> = repos_with_config
@@ -112,8 +111,8 @@ fn get_stats_in_repos_impl(
 /// Forked project share identical histories until the forking point. Those commits have identical
 /// IDs and can be identified. This function detects such shared histories, removes them from all
 /// involved repositories except one (chosen alphabetically).
-fn remove_commits_from_forks(
-    samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>,
+fn remove_commits_from_forks<P: TimePeriod>(
+    samples: &mut HashMap<PathBuf, BTreeMap<P, CommitId>>,
     priorities: &HashMap<PathBuf, i32>,
 ) {
     let mut history_trie = HistoryTrie::default();
@@ -131,17 +130,17 @@ fn remove_commits_from_forks(
     }
 }
 
-fn sample_all_commits(
+fn sample_all_commits<P: TimePeriod>(
     base_path: &Path,
     filtered_repos: &HashMap<&PathBuf, &RepoConfig>,
-) -> HashMap<PathBuf, BTreeMap<YearMonth, CommitId>> {
+) -> HashMap<PathBuf, BTreeMap<P, CommitId>> {
     let samples = Mutex::new(HashMap::new());
     filtered_repos.par_iter().for_each(|(&repo_path, &repo_config)| {
         let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
             .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
             .unwrap();
 
-        let repo_samples: BTreeMap<YearMonth, CommitId> = sample_commits(&repo, repo_config);
+        let repo_samples: BTreeMap<P, CommitId> = sample_commits(&repo, repo_config);
         samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
     });
     samples.into_inner().unwrap()
@@ -170,7 +169,7 @@ fn create_progress_bar(suppress: bool) -> ProgressBar {
     bar
 }
 
-fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<YearMonth, CommitId> {
+fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<P, CommitId> {
     let mut samples = BTreeMap::new();
     let mut revwalk = repo.revwalk().unwrap();
 
@@ -195,22 +194,23 @@ fn sample_commits(repo: &git2::Repository, config: &RepoConfig) -> BTreeMap<Year
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(YearMonth::from_datelike(time), commit_id);
+        samples.insert(P::from_datelike(time), commit_id);
     }
     samples
 }
 
-fn get_stats_from_samples<F>(
+fn get_stats_from_samples<P, F>(
     base_path: &Path,
     repo_path: &Path,
-    samples: &BTreeMap<YearMonth, CommitId>,
+    samples: &BTreeMap<P, CommitId>,
     skip_languages: &[tokei::LanguageType],
     update_reporter: F,
-) -> HistoricStats
+) -> HistoricStats<P>
 where
+    P: TimePeriod,
     F: Fn() + Send + Sync,
 {
-    let snapshots = Arc::new(Mutex::new(BTreeMap::new()));
+    let period_stats = Arc::new(Mutex::new(BTreeMap::new()));
     let cache: Arc<Mutex<StatsCache>> = Arc::new(Mutex::new(HashMap::new()));
     let update_reporter = Arc::new(update_reporter);
 
@@ -218,21 +218,21 @@ where
     // necessary for when a couple of repositories are much bigger than the rest, or when simply
     // analyzing only one.
     rayon::scope(|s| {
-        for (&date, &commit_id) in samples {
+        for (&period, &commit_id) in samples {
             s.spawn({
-                let snapshots = snapshots.clone();
+                let snapshots = period_stats.clone();
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
                     let stats =
                         get_stats_from_commit(base_path, repo_path, commit_id, skip_languages, &cache);
-                    snapshots.lock_or_panic().insert(date, stats);
+                    snapshots.lock_or_panic().insert(period, stats);
                     update_reporter();
                 }
             });
         }
     });
-    HistoricStats { snapshots: Arc::try_unwrap(snapshots).unwrap().into_inner().unwrap() }
+    HistoricStats { periods: Arc::try_unwrap(period_stats).unwrap().into_inner().unwrap() }
 }
 
 fn get_stats_from_commit(
@@ -304,26 +304,26 @@ fn count_lines_impl(
     }
 }
 
-fn fill_gaps(
-    stats: &mut Stats,
+fn fill_gaps<P: TimePeriod>(
+    stats: &mut Stats<P>,
     configs: &HashMap<PathBuf, RepoConfig>,
-    min_month: YearMonth,
-    this_month: YearMonth,
+    min_period: P,
+    this_period: P,
 ) {
     for (repo, historic_stats) in &mut stats.repositories {
         // Normally, this function will fill gaps at the end of the series until the present time
         // with the last known value, assuming a stale repository. However, if the repository is
         // marked as "archived" we take the last commit as the end.
-        let max_month = if configs[repo].archived {
-            *historic_stats.snapshots.keys().max().expect("there should be at least one commit")
+        let max_period = if configs[repo].archived {
+            *historic_stats.periods.keys().max().expect("there should be at least one commit")
         } else {
-            this_month
+            this_period
         };
 
-        for month in min_month.iter_to(max_month) {
+        for period in min_period.iter_to(max_period) {
             let floor =
-                historic_stats.snapshots.range(..=month).last().map(|(_, v)| v).cloned().unwrap_or_default();
-            historic_stats.snapshots.entry(month).or_insert(floor);
+                historic_stats.periods.range(..=period).last().map(|(_, v)| v).cloned().unwrap_or_default();
+            historic_stats.periods.entry(period).or_insert(floor);
         }
     }
 }
@@ -332,9 +332,9 @@ fn fill_gaps(
 ///
 /// A repository is kept if at least one snapshot, in at least one language, has a line count
 /// greater than or equal to `min_lines`.
-fn remove_min_lines_repos(stats: &mut Stats, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
+fn remove_min_lines_repos<P>(stats: &mut Stats<P>, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
     stats.repositories.retain(|repo, historic_stats| {
         let min_lines = repos_with_config[repo].min_lines as usize;
-        historic_stats.snapshots.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
+        historic_stats.periods.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
     });
 }

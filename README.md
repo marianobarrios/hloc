@@ -34,14 +34,15 @@ cargo run --release -- <BASE_DIR>
 hloc [OPTIONS] <BASE_DIR>...
 ```
 
-| Argument / Option | Description |
-|---|---|
-| `<BASE_DIR>...` | One or more root directories to search for Git repositories (recursive) |
+| Argument / Option              | Description |
+|--------------------------------|---|
+| `<BASE_DIR>...`                | One or more root directories to search for Git repositories (recursive) |
 | `-o, --output-dir <DIRECTORY>` | Where to write the HTML report (default: `out/`) |
-| `-c, --config <CONFIG_FILE>` | TOML configuration file (see below) |
-| `-s, --suppress-progress` | Do not print progress to stderr |
-| `--show-resolved-config` | Print the resolved per-repository configuration as TOML and exit |
-| `--languages` | Print the list of supported languages with their file extensions and exit |
+| `-c, --config <CONFIG_FILE>`   | TOML configuration file (see below) |
+| `-p, --period <PERIOD>`        | Time granularity for sampling commits: `month` (default) or `week` |
+| `-s, --suppress-progress`      | Do not print progress to stderr |
+| `--show-resolved-config`       | Print the resolved per-repository configuration as TOML and exit |
+| `--languages`                  | Print the list of supported languages with their file extensions and exit |
 
 ## Configuration file
 

@@ -5,17 +5,20 @@ mod git;
 mod history_trie;
 mod languages;
 mod stats;
+mod time_period;
 mod util;
-mod year_month;
 
+use crate::time_period::TimePeriod;
 use anyhow::{Context, bail};
 use clap::Parser;
 use config::{Config, RepoConfig};
 use console::style;
 use globset::{GlobBuilder, GlobMatcher};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+use time_period::{YearMonth, YearWeek};
 use util::PathExt;
 use walkdir::WalkDir;
 
@@ -76,6 +79,15 @@ struct Args {
     )]
     config: Option<PathBuf>,
 
+    #[arg(
+        short,
+        long,
+        value_name = "PERIOD",
+        default_value = "month",
+        help = "Time granularity for sampling commits: month or week"
+    )]
+    period: PeriodArg,
+
     #[arg(short, long, action, help = "Do not try to detect forks to avoid double counting")]
     no_fork_detection: bool,
 
@@ -84,6 +96,14 @@ struct Args {
 
     #[arg(long, help = "Print the list of supported languages and exit")]
     languages: bool,
+}
+
+/// Controls whether history is sampled per calendar month or per ISO week.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum, Default)]
+pub enum PeriodArg {
+    #[default]
+    Month,
+    Week,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -114,16 +134,28 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     let base_dir = util::longest_common_subpath(&args.repo_dirs);
+    let detect_forks = !args.no_fork_detection;
+
     let start = Instant::now();
-    let (stats, min_month, max_month) = count::get_stats_from_repos(
-        &base_dir,
-        &repos_with_config,
-        !args.no_fork_detection,
-        args.suppress_progress,
-    )?;
-    let html_file = charts::write_output(&args.output_dir, &base_dir, &stats, min_month, max_month)?;
+    let chart_path = match args.period {
+        PeriodArg::Month => calculate_stats::<YearMonth>(
+            &repos_with_config,
+            &base_dir,
+            detect_forks,
+            args.suppress_progress,
+            &args.output_dir,
+        )?,
+        PeriodArg::Week => calculate_stats::<YearWeek>(
+            &repos_with_config,
+            &base_dir,
+            detect_forks,
+            args.suppress_progress,
+            &args.output_dir,
+        )?,
+    };
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
-    let url = format!("file://{}", html_file.canonicalize().expect("valid path").to_str_or_panic());
+
+    let url = format!("file://{}", chart_path.canonicalize().expect("valid path").to_str_or_panic());
     eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
     Ok(())
 }
@@ -200,4 +232,17 @@ fn is_git_repo(path: &Path) -> bool {
 pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
     let rel = pathdiff::diff_paths(path, base_path).unwrap_or_else(|| path.to_owned());
     if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel }
+}
+
+fn calculate_stats<P: TimePeriod>(
+    repos: &HashMap<PathBuf, RepoConfig>,
+    base_dir: &Path,
+    detect_forks: bool,
+    suppress_progress: bool,
+    output_dir: &Path,
+) -> Result<PathBuf, anyhow::Error> {
+    let (stats, min, max) =
+        count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress)?;
+    let chart_path = charts::write_output(output_dir, base_dir, &stats, min, max)?;
+    Ok(chart_path)
 }
