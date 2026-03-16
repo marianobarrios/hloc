@@ -74,6 +74,7 @@ archived = true
 | `min_lines` | integer | `1` | Minimum lines of code a repository must reach at any point to appear in the report |
 | `from_time` | date | — | Ignore commits before this date (`YYYY-MM-DD`) |
 | `archived` | bool | `false` | Cap the repository's history at its last commit instead of propagating to the current date |
+| `fork_priority` | integer | `0` | Priority used during fork detection. When two repositories share commit history, the one with the lower value is treated as the original and retains those commits; the other has the shared commits removed from its count. Ties are broken alphabetically by path. |
 
 Use `--show-resolved-config` to inspect the final merged settings for every discovered repository before running a full count.
 

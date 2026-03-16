@@ -1,8 +1,8 @@
 mod charts;
-mod commit_trie;
 mod config;
 mod count;
 mod git;
+mod history_trie;
 mod languages;
 mod stats;
 mod util;
@@ -36,8 +36,9 @@ Available settings per pattern:
   min_lines       (integer)     Minimum lines of code required for a repository to appear in the report [default: 1]
   from_time       (date)        Only count commits from this date onward (YYYY-MM-DD) [default: none]
   archived        (bool)        Treat matching repositories as archived. Archived repositories are assumed to finish at the last commit, as opposed to propagating until the current date [default: false]
+  fork_priority   (integer)     Priority used during fork detection. When two repositories share commit history, the one with the lower value is treated as the original and keeps the shared commits; the other has those commits removed. Ties are broken alphabetically. [default: 0]
 
-Multiple patterns can match a repository; settings are merged (ignore/archived are OR'd, min_lines takes the max, skip_languages are combined)."#;
+Multiple patterns can match a repository; settings are merged (ignore/archived are OR'd, min_lines takes the max, skip_languages are combined, fork_priority takes the min)."#;
 
 #[derive(Debug, clap::Parser)]
 #[command(

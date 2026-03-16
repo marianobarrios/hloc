@@ -1,7 +1,7 @@
-use crate::commit_trie::HistoryTrie;
 use crate::config::RepoConfig;
 use crate::display_name;
 use crate::git::{BlobId, CommitId};
+use crate::history_trie::HistoryTrie;
 use crate::languages;
 use crate::stats::{CodeStats, GlobalStats, HistoricStats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
@@ -73,7 +73,11 @@ fn get_stats_in_repos_impl(
     let mut samples = sample_all_commits(base_path, &filtered_repos);
 
     if detect_forks {
-        remove_commits_from_forks(&mut samples);
+        let priorities: HashMap<_, _> = repos_with_config
+            .iter()
+            .map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0)))
+            .collect();
+        remove_commits_from_forks(&mut samples, &priorities);
     }
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
@@ -109,14 +113,18 @@ fn get_stats_in_repos_impl(
 /// Forked project share identical histories until the forking point. Those commits have identical
 /// IDs and can be identified. This function detects such shared histories, removes them from all
 /// involved repositories except one (chosen alphabetically).
-fn remove_commits_from_forks(samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>) {
-    let mut history_trie = HistoryTrie::new();
+fn remove_commits_from_forks(
+    samples: &mut HashMap<PathBuf, BTreeMap<YearMonth, CommitId>>,
+    priorities: &HashMap<PathBuf, i32>,
+) {
+    let mut history_trie = HistoryTrie::default();
     for (repo, commit_map) in samples.iter() {
         let commits: Vec<_> = commit_map.values().copied().collect();
-        history_trie.insert(repo, &commits);
+        let priority = priorities[repo];
+        history_trie.insert(repo, priority, &commits).unwrap();
     }
 
-    let result = history_trie.get_all_sequences_iterative();
+    let result = history_trie.get_all_sequences();
 
     for (repo, repo_samples) in samples.iter_mut() {
         let remaining_commits: HashSet<CommitId> = HashSet::from_iter(result[repo].clone().into_iter());

@@ -1,3 +1,4 @@
+use crate::util;
 use chrono::NaiveDate;
 use clap::command;
 use std::cmp;
@@ -23,11 +24,24 @@ pub struct RepoConfig {
 
     #[serde(default)]
     pub archived: bool,
+
+    /// An option is used (instead of relying on the integer default of zero) for merge to work:
+    /// The minimum priority is preserved during merging, but excluding Nones (merging None and 10
+    /// results in 10, not 0).
+    #[serde(default)]
+    pub fork_priority: Option<i32>,
 }
 
 impl RepoConfig {
     pub fn default() -> Self {
-        Self { ignore: false, skip_languages: Vec::new(), min_lines: 1, from_time: None, archived: false }
+        Self {
+            ignore: false,
+            skip_languages: Vec::new(),
+            min_lines: 1,
+            from_time: None,
+            archived: false,
+            fork_priority: None,
+        }
     }
 
     pub fn merge(mut self, other: &Self) -> Self {
@@ -36,8 +50,9 @@ impl RepoConfig {
             ignore: self.ignore || other.ignore,
             skip_languages: self.skip_languages,
             min_lines: cmp::max(self.min_lines, other.min_lines),
-            from_time: crate::util::merge_options(self.from_time, other.from_time, cmp::max),
+            from_time: util::merge_options(self.from_time, other.from_time, cmp::max),
             archived: self.archived || other.archived,
+            fork_priority: util::merge_options(self.fork_priority, other.fork_priority, cmp::min),
         }
     }
 }
