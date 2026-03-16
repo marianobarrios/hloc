@@ -16,7 +16,7 @@ pub struct RepoConfig {
     #[serde(default, deserialize_with = "deserialize_languages")]
     pub skip_languages: Vec<tokei::LanguageType>,
 
-    #[serde(default = "default_min_lines")]
+    #[serde(default = "RepoConfig::default_min_lines")]
     pub min_lines: u32,
 
     #[serde(default)]
@@ -46,6 +46,10 @@ impl Default for RepoConfig {
 }
 
 impl RepoConfig {
+    fn default_min_lines() -> u32 {
+        1
+    }
+
     pub fn merge(mut self, other: &Self) -> Self {
         self.skip_languages.extend_from_slice(&other.skip_languages);
         Self {
@@ -75,8 +79,4 @@ where
             })
         })
         .collect()
-}
-
-fn default_min_lines() -> u32 {
-    1
 }

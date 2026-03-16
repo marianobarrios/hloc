@@ -178,9 +178,11 @@ fn collect_repositories(base_dirs: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoConfig)]) -> RepoConfig {
-    let (_, applicable_configs): (Vec<_>, Vec<_>) =
-        config.iter().filter(|&(pattern, _)| pattern.is_match(repo)).cloned().unzip();
-    applicable_configs.iter().fold(RepoConfig::default(), RepoConfig::merge)
+    config
+        .iter()
+        .filter(|(pattern, _)| pattern.is_match(repo))
+        .map(|(_, repo_config)| repo_config)
+        .fold(RepoConfig::default(), RepoConfig::merge)
 }
 
 /// Checks whether the supplied path is a Git repo with at least one commit

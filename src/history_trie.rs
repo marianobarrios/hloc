@@ -125,9 +125,9 @@ impl HistoryTrie {
             current_node = node;
         }
 
-        let mut node = TrieNode::default();
-        node.repos.push(repo.clone());
-        let existing = current_node.children.insert(CommitRef::EoH, node);
+        let existing = current_node
+            .children
+            .insert(CommitRef::EoH, TrieNode { repos: vec![repo.clone()], ..Default::default() });
 
         // `CommitRef::EoH` are never equal to each other
         assert!(existing.is_none());

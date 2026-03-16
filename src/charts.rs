@@ -1,4 +1,4 @@
-use crate::stats::GlobalStats;
+use crate::stats::Stats;
 use crate::util::PathExt;
 use crate::year_month::YearMonth;
 use crate::{display_name, util};
@@ -16,7 +16,7 @@ struct Asset;
 pub fn write_output(
     output_dir: &Path,
     base_dir: &Path,
-    stats: &GlobalStats,
+    stats: &Stats,
     min_month: YearMonth,
     max_month: YearMonth,
 ) -> anyhow::Result<PathBuf> {
@@ -50,7 +50,7 @@ fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result
 
 fn get_by_repo_chart(
     base_dir: &Path,
-    stats: &GlobalStats,
+    stats: &Stats,
     min_month: YearMonth,
     max_month: YearMonth,
 ) -> serde_json::Value {
@@ -79,7 +79,7 @@ fn get_by_repo_chart(
     })
 }
 
-fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
+fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
     let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
 
     let all_languages = get_sorted_languages(stats);
@@ -114,8 +114,8 @@ fn get_by_lang_chart(stats: &GlobalStats, min_month: YearMonth, max_month: YearM
     })
 }
 
-/// Returns all languages present in the stats, sorted by decreasing popularity (using last commit)
-fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> {
+/// Returns all languages present in the stats, sorted by increasing popularity (using last commit)
+fn get_sorted_languages(global_stats: &Stats) -> Vec<tokei::LanguageType> {
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit =
@@ -129,15 +129,14 @@ fn get_sorted_languages(global_stats: &GlobalStats) -> Vec<tokei::LanguageType> 
     languages
 }
 
-/// Returns the repositories present in the stats, sorted by decreasing size (using last commit)
-fn get_sorted_repos(global_stats: &GlobalStats) -> Vec<PathBuf> {
+/// Returns the repositories present in the stats, sorted by increasing size (using last commit)
+fn get_sorted_repos(global_stats: &Stats) -> Vec<PathBuf> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in &global_stats.repositories {
         let last_commit =
             historic_stats.snapshots.values().last().expect("repository should have at least one commit");
-        for line_count in last_commit.languages.values() {
-            *repo_map.entry(repo.clone()).or_insert(0) += line_count;
-        }
+        let total: usize = last_commit.languages.values().sum();
+        repo_map.insert(repo.clone(), total);
     }
     let mut repos: Vec<_> = repo_map.keys().cloned().collect();
     repos.sort_by(|a, b| repo_map[a].cmp(&repo_map[b]));

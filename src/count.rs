@@ -3,7 +3,7 @@ use crate::display_name;
 use crate::git::{BlobId, CommitId};
 use crate::history_trie::HistoryTrie;
 use crate::languages;
-use crate::stats::{CodeStats, GlobalStats, HistoricStats};
+use crate::stats::{CodeStats, HistoricStats, Stats};
 use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
 use crate::year_month::YearMonth;
 use anyhow::Context;
@@ -27,7 +27,7 @@ pub fn get_stats_from_repos(
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<(GlobalStats, YearMonth, YearMonth)> {
+) -> anyhow::Result<(Stats, YearMonth, YearMonth)> {
     // count
     let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, detect_forks, suppress_progress)?;
 
@@ -50,7 +50,7 @@ fn get_stats_in_repos_impl(
     repos_with_config: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<GlobalStats> {
+) -> anyhow::Result<Stats> {
     let filtered_repos: HashMap<_, _> =
         repos_with_config.iter().filter(|&(_, config)| !config.ignore).collect();
 
@@ -60,7 +60,7 @@ fn get_stats_in_repos_impl(
     let finished_repos = AtomicUsize::new(0);
     let total_stats = Mutex::new(HashMap::new());
 
-    // The set of the repositories that are currently being count, used to display. It is a linked
+    // The set of the repositories that are currently being counted, used to display. It is a linked
     // set to preserve insertion order, in turn to make the list as stable as possible.
     let currently_counting = Mutex::new(LinkedHashSet::new());
 
@@ -83,7 +83,7 @@ fn get_stats_in_repos_impl(
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     bar.set_length(total_samples as u64);
 
-    // The first level of concurrent is by repository
+    // The first level of concurrency is by repository
     filtered_repos.par_iter().for_each(|(&path, &config)| {
         let display_name = display_name(base_path, path);
 
@@ -105,8 +105,7 @@ fn get_stats_in_repos_impl(
 
     bar.finish_and_clear();
 
-    let total_stats = total_stats.lock_or_panic();
-    Ok(GlobalStats { repositories: total_stats.clone() })
+    Ok(Stats { repositories: total_stats.into_inner().unwrap() })
 }
 
 /// Detects forks of project to avoid double counting.
@@ -127,7 +126,7 @@ fn remove_commits_from_forks(
     let result = history_trie.get_all_sequences();
 
     for (repo, repo_samples) in samples.iter_mut() {
-        let remaining_commits: HashSet<CommitId> = HashSet::from_iter(result[repo].clone().into_iter());
+        let remaining_commits: HashSet<_> = result[repo].iter().copied().collect();
         repo_samples.retain(|_, commit| remaining_commits.contains(commit));
     }
 }
@@ -145,7 +144,7 @@ fn sample_all_commits(
         let repo_samples: BTreeMap<YearMonth, CommitId> = sample_commits(&repo, repo_config);
         samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
     });
-    samples.lock_or_panic().clone()
+    samples.into_inner().unwrap()
 }
 
 fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
@@ -228,14 +227,12 @@ where
                     let stats =
                         get_stats_from_commit(base_path, repo_path, commit_id, skip_languages, &cache);
                     snapshots.lock_or_panic().insert(date, stats);
-
-                    // a commit was finished, ping the reported to increase the progress
                     update_reporter();
                 }
             });
         }
     });
-    HistoricStats { snapshots: snapshots.lock_or_panic().clone() }
+    HistoricStats { snapshots: Arc::try_unwrap(snapshots).unwrap().into_inner().unwrap() }
 }
 
 fn get_stats_from_commit(
@@ -308,7 +305,7 @@ fn count_lines_impl(
 }
 
 fn fill_gaps(
-    stats: &mut GlobalStats,
+    stats: &mut Stats,
     configs: &HashMap<PathBuf, RepoConfig>,
     min_month: YearMonth,
     this_month: YearMonth,
@@ -331,19 +328,13 @@ fn fill_gaps(
     }
 }
 
-fn remove_min_lines_repos(stats: &mut GlobalStats, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
-    let mut empty_repos = Vec::new();
-    for (repo, historic_stats) in &stats.repositories {
-        let config = &repos_with_config[repo];
-        if historic_stats
-            .snapshots
-            .values()
-            .all(|code_stats| code_stats.languages.values().all(|&s| s < config.min_lines as usize))
-        {
-            empty_repos.push(repo.clone());
-        }
-    }
-    for repo in empty_repos {
-        stats.repositories.remove(&repo);
-    }
+/// Removes repositories that never reached their configured `min_lines` threshold.
+///
+/// A repository is kept if at least one snapshot, in at least one language, has a line count
+/// greater than or equal to `min_lines`.
+fn remove_min_lines_repos(stats: &mut Stats, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
+    stats.repositories.retain(|repo, historic_stats| {
+        let min_lines = repos_with_config[repo].min_lines as usize;
+        historic_stats.snapshots.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
+    });
 }

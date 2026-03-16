@@ -1,16 +1,15 @@
 use crate::year_month::YearMonth;
 use std::collections::{BTreeMap, HashMap};
-use std::ops::AddAssign;
 use std::path::PathBuf;
 
 /// Statistics across repositories and time
-#[derive(Debug, Clone)]
-pub struct GlobalStats {
+#[derive(Debug)]
+pub struct Stats {
     pub repositories: HashMap<PathBuf, HistoricStats>,
 }
 
 /// Statistics of a single repository across time
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct HistoricStats {
     pub snapshots: BTreeMap<YearMonth, CodeStats>,
 }
@@ -19,13 +18,4 @@ pub struct HistoricStats {
 #[derive(Debug, Clone, Default)]
 pub struct CodeStats {
     pub languages: HashMap<tokei::LanguageType, usize>,
-}
-
-impl AddAssign for CodeStats {
-    fn add_assign(&mut self, rhs: Self) {
-        for (lang, stats) in rhs.languages {
-            let value = self.languages.entry(lang).or_insert(0);
-            *value += stats;
-        }
-    }
 }

@@ -38,7 +38,7 @@ pub trait PathExt {
 
 impl PathExt for Path {
     fn to_str_or_panic(&self) -> &str {
-        self.to_str().expect("path should be valid UTF-8")
+        self.as_os_str().to_str_or_panic()
     }
 }
 
