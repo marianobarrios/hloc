@@ -1,6 +1,6 @@
 use crate::stats::Stats;
+use crate::time_period::TimePeriod;
 use crate::util::PathExt;
-use crate::year_month::YearMonth;
 use crate::{display_name, util};
 use anyhow::Context;
 use rust_embed::Embed;
@@ -13,15 +13,15 @@ use std::{fs, io};
 #[folder = "templates"]
 struct Asset;
 
-pub fn write_output(
+pub fn write_output<P: TimePeriod>(
     output_dir: &Path,
     base_dir: &Path,
-    stats: &Stats,
-    min_month: YearMonth,
-    max_month: YearMonth,
+    stats: &Stats<P>,
+    min_period: P,
+    max_period: P,
 ) -> anyhow::Result<PathBuf> {
-    let by_repo_data = get_by_repo_chart(base_dir, stats, min_month, max_month);
-    let by_lang_data = get_by_lang_chart(stats, min_month, max_month);
+    let by_repo_data = get_by_repo_chart(base_dir, stats, min_period, max_period);
+    let by_lang_data = get_by_lang_chart(stats, min_period, max_period);
 
     match fs::remove_dir_all(output_dir) {
         Ok(()) => {}
@@ -48,13 +48,13 @@ fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result
     Ok(())
 }
 
-fn get_by_repo_chart(
+fn get_by_repo_chart<P: TimePeriod>(
     base_dir: &Path,
-    stats: &Stats,
-    min_month: YearMonth,
-    max_month: YearMonth,
+    stats: &Stats<P>,
+    min_period: P,
+    max_period: P,
 ) -> serde_json::Value {
-    let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
+    let x_labels: Vec<_> = min_period.iter_to(max_period).map(|p| p.to_string()).collect();
     let dataset: Vec<_> = get_sorted_repos(stats)
         .iter()
         .map(|repo| {
@@ -79,8 +79,8 @@ fn get_by_repo_chart(
     })
 }
 
-fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) -> serde_json::Value {
-    let x_labels: Vec<_> = min_month.iter_to(max_month).map(|m| m.to_string()).collect();
+fn get_by_lang_chart<P: TimePeriod>(stats: &Stats<P>, min_period: P, max_period: P) -> serde_json::Value {
+    let x_labels: Vec<_> = min_period.iter_to(max_period).map(|p| p.to_string()).collect();
 
     let all_languages = get_sorted_languages(stats);
 
@@ -88,9 +88,9 @@ fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) 
     for lang in &all_languages {
         let mut period_data = BTreeMap::new();
         for repo_stats in stats.repositories.values() {
-            for (&month, period_stats) in &repo_stats.periods {
+            for (&period, period_stats) in &repo_stats.periods {
                 let lang_stats = period_stats.languages.get(lang).unwrap_or(&0);
-                *period_data.entry(month).or_insert(0) += lang_stats;
+                *period_data.entry(period).or_insert(0) += lang_stats;
             }
         }
         per_lang_data.insert(lang, period_data);
@@ -99,10 +99,10 @@ fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) 
     let dataset: Vec<_> = all_languages
         .iter()
         .map(|lang| {
-            let monthly_data: Vec<_> = per_lang_data[lang].values().collect();
+            let period_data: Vec<_> = per_lang_data[lang].values().collect();
             json!({
                 "label": lang,
-                "data": monthly_data,
+                "data": period_data,
                 "borderWidth": 1,
                 "fill": true,
             })
@@ -115,7 +115,7 @@ fn get_by_lang_chart(stats: &Stats, min_month: YearMonth, max_month: YearMonth) 
 }
 
 /// Returns all languages present in the stats, sorted by increasing popularity (using last commit)
-fn get_sorted_languages(global_stats: &Stats) -> Vec<tokei::LanguageType> {
+fn get_sorted_languages<P>(global_stats: &Stats<P>) -> Vec<tokei::LanguageType> {
     let mut language_map = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit =
@@ -130,7 +130,7 @@ fn get_sorted_languages(global_stats: &Stats) -> Vec<tokei::LanguageType> {
 }
 
 /// Returns the repositories present in the stats, sorted by increasing size (using last commit)
-fn get_sorted_repos(global_stats: &Stats) -> Vec<PathBuf> {
+fn get_sorted_repos<P>(global_stats: &Stats<P>) -> Vec<PathBuf> {
     let mut repo_map = HashMap::new();
     for (repo, historic_stats) in &global_stats.repositories {
         let last_commit =
