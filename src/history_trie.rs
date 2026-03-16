@@ -15,6 +15,7 @@
 //! share all of their commits up to the very last one.
 
 use crate::git::CommitId;
+use anyhow::bail;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -103,12 +104,18 @@ impl HistoryTrie {
     /// Each commit in `commits` creates (or navigates to) a child node, and the repository is
     /// recorded at every node it passes through. An [`CommitRef::EoH`] sentinel is appended after
     /// the last commit to mark where this repository's history ends.
-    pub fn insert(&mut self, repo_path: &Path, priority: i32, commits: &[CommitId]) {
+    pub fn insert(
+        &mut self,
+        repo_path: &Path,
+        priority: i32,
+        commits: &[CommitId],
+    ) -> Result<(), anyhow::Error> {
         assert!(!commits.is_empty());
-        let repo = self
-            .all_repos
-            .entry(repo_path.to_owned())
-            .or_insert_with(|| Rc::new(Repo { path: repo_path.to_owned(), priority }));
+        let repo = Rc::new(Repo { path: repo_path.to_owned(), priority });
+        let previous = self.all_repos.insert(repo_path.to_owned(), repo.clone());
+        if previous.is_some() {
+            bail!("repository {repo_path:?} already inserted");
+        }
 
         let mut current_node = &mut self.root;
 
@@ -123,6 +130,7 @@ impl HistoryTrie {
         node.repos.push(repo.clone());
         let existing = current_node.children.insert(CommitRef::EoH, node);
         assert!(existing.is_none());
+        Ok(())
     }
 
     /// Returns the de-duplicated commit list for every repository.
@@ -277,7 +285,7 @@ mod tests {
     fn do_test(repos: &HashMap<(&Path, i32), Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
         let mut trie = HistoryTrie::new();
         for ((repo, priority), commits) in repos {
-            trie.insert(repo, *priority, &commits);
+            trie.insert(repo, *priority, &commits).unwrap();
         }
         assert_eq!(&trie.get_all_sequences(), expected);
     }

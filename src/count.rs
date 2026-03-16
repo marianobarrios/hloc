@@ -121,7 +121,7 @@ fn remove_commits_from_forks(
     for (repo, commit_map) in samples.iter() {
         let commits: Vec<_> = commit_map.values().copied().collect();
         let priority = priorities[repo];
-        history_trie.insert(repo, priority, &commits);
+        history_trie.insert(repo, priority, &commits).unwrap();
     }
 
     let result = history_trie.get_all_sequences();
