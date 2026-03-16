@@ -136,7 +136,7 @@ impl HistoryTrie {
     ///
     /// When an [`CommitRef::EoH`] node is reached, the accumulated path is recorded as the final
     /// commit list for all repositories that terminate there.
-    pub fn get_all_sequences_iterative(&self) -> HashMap<PathBuf, Vec<CommitId>> {
+    pub fn get_all_sequences(&self) -> HashMap<PathBuf, Vec<CommitId>> {
         let mut results = HashMap::new();
 
         // Each queue entry holds the path to the current node and a reference to it.
@@ -279,6 +279,6 @@ mod tests {
         for ((repo, priority), commits) in repos {
             trie.insert(repo, *priority, &commits);
         }
-        assert_eq!(&trie.get_all_sequences_iterative(), expected);
+        assert_eq!(&trie.get_all_sequences(), expected);
     }
 }

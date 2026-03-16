@@ -124,7 +124,7 @@ fn remove_commits_from_forks(
         history_trie.insert(repo, priority, &commits);
     }
 
-    let result = history_trie.get_all_sequences_iterative();
+    let result = history_trie.get_all_sequences();
 
     for (repo, repo_samples) in samples.iter_mut() {
         let remaining_commits: HashSet<CommitId> = HashSet::from_iter(result[repo].clone().into_iter());
