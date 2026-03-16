@@ -145,7 +145,7 @@ fn sample_all_commits(
         let repo_samples: BTreeMap<YearMonth, CommitId> = sample_commits(&repo, repo_config);
         samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
     });
-    samples.lock_or_panic().clone()
+    samples.into_inner().unwrap()
 }
 
 fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
