@@ -49,10 +49,11 @@ Multiple patterns can match a repository; settings are merged (ignore/archived a
 )]
 struct Args {
     #[arg(
-        help = "Base directory in which to search for repositories",
-        required_unless_present = "languages"
+        help = "Directories in which to search for repositories",
+        required_unless_present = "languages",
+        num_args = 1..
     )]
-    base_dir: Option<PathBuf>,
+    repo_dirs: Vec<PathBuf>,
 
     #[arg(short, long, action, help = "Do not print progress to stderr")]
     suppress_progress: bool,
@@ -92,7 +93,6 @@ fn main() -> anyhow::Result<()> {
         print_language_list();
         return Ok(());
     }
-    let base_dir = args.base_dir.expect("base dir should be present if 'languages' was not specified");
     let parsed_config = match args.config {
         Some(config_file) => {
             let file = fs::read_to_string(&config_file)
@@ -101,9 +101,11 @@ fn main() -> anyhow::Result<()> {
         }
         None => Vec::new(),
     };
-    let repos = collect_repositories(&base_dir);
+    let repos = collect_repositories(&args.repo_dirs);
     if repos.is_empty() {
-        bail!("No Git repositories found in {}", base_dir.display());
+        let dirs =
+            args.repo_dirs.iter().map(|d| format!("\"{}\"", d.display())).collect::<Vec<_>>().join(", ");
+        bail!("No Git repositories found in {dirs}");
     }
     let repos_with_config =
         repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
@@ -111,6 +113,7 @@ fn main() -> anyhow::Result<()> {
         println!("{}", toml::to_string(&repos_with_config).expect("resolved config should be serializable"));
         return Ok(());
     }
+    let base_dir = util::longest_common_subpath(&args.repo_dirs);
     let start = Instant::now();
     let (stats, min_month, max_month) = count::get_stats_from_repos(
         &base_dir,
@@ -153,22 +156,24 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoCon
     Ok(parsed_config)
 }
 
-/// Finds all Git repositories recursively.
-fn collect_repositories(base_dir: &Path) -> Vec<PathBuf> {
-    // The iterator is created only for its side effects
+/// Finds all Git repositories recursively under each of the given base directories.
+/// Returns absolute paths.
+fn collect_repositories(base_dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut repos = Vec::new();
-    WalkDir::new(base_dir)
-        .into_iter()
-        .filter_entry(|e| {
-            if is_git_repo(e.path()) {
-                let rel_path = pathdiff::diff_paths(e.path(), base_dir).unwrap();
-                repos.push(rel_path);
-                false // do not recurse inside repositories
-            } else {
-                true
-            }
-        })
-        .for_each(|_| ()); // force iterator consumption
+    for base_dir in base_dirs {
+        // The iterator is created only for its side effects
+        WalkDir::new(base_dir)
+            .into_iter()
+            .filter_entry(|e| {
+                if is_git_repo(e.path()) {
+                    repos.push(e.path().to_owned());
+                    false // do not recurse inside repositories
+                } else {
+                    true
+                }
+            })
+            .for_each(|_| ()); // force iterator consumption
+    }
     repos
 }
 
@@ -186,10 +191,11 @@ fn is_git_repo(path: &Path) -> bool {
     }
 }
 
-/// The display name of a repository is in most cases its path relative to the base directory.
-/// However, when there is only one repository in the base path itself, the specific path is just
-/// the empty path, making reports confusing. In those cases we pick the last component of the base
-/// path, which is the name of the directory of the repository itself.
+/// The display name of a repository is its path relative to the common ancestor of the base
+/// directories. However, when there is only one repository and it is the base itself, the relative
+/// path would be empty, making reports confusing. In that case we use the last component of the
+/// base path, which is the name of the directory of the repository itself.
 pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
-    if path.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { path.to_owned() }
+    let rel = pathdiff::diff_paths(path, base_path).unwrap_or_else(|| path.to_owned());
+    if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel }
 }
