@@ -60,7 +60,7 @@ fn get_stats_in_repos_impl(
     let finished_repos = AtomicUsize::new(0);
     let total_stats = Mutex::new(HashMap::new());
 
-    // The set of the repositories that are currently being count, used to display. It is a linked
+    // The set of the repositories that are currently being counted, used to display. It is a linked
     // set to preserve insertion order, in turn to make the list as stable as possible.
     let currently_counting = Mutex::new(LinkedHashSet::new());
 
@@ -83,7 +83,7 @@ fn get_stats_in_repos_impl(
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     bar.set_length(total_samples as u64);
 
-    // The first level of concurrent is by repository
+    // The first level of concurrency is by repository
     filtered_repos.par_iter().for_each(|(&path, &config)| {
         let display_name = display_name(base_path, path);
 
