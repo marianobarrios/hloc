@@ -18,19 +18,21 @@ use crate::git::CommitId;
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// A trie whose keys are sequences of Git commit IDs.
 ///
 /// Each inserted repository occupies a root-to-leaf path in the trie. Shared prefixes between
 /// paths represent shared commit history (forks).
 #[derive(Debug)]
-pub struct HistoryTrie<'r> {
-    root: TrieNode<'r>,
+pub struct HistoryTrie {
+    all_repos: HashMap<PathBuf, Rc<Repo>>,
+    root: TrieNode,
 }
 
-impl HistoryTrie<'_> {
+impl HistoryTrie {
     pub fn new() -> Self {
-        Self { root: TrieNode::default() }
+        Self { all_repos: HashMap::new(), root: TrieNode::default() }
     }
 }
 
@@ -39,20 +41,20 @@ impl HistoryTrie<'_> {
 /// `repos` lists every repository whose sampled history passes through this node (i.e. has the
 /// corresponding commit). `children` maps the next commit (or `EoH`) to the child node.
 #[derive(Debug, Default)]
-struct TrieNode<'a> {
-    repos: Vec<Repo<'a>>,
-    children: HashMap<CommitRef, TrieNode<'a>>,
+struct TrieNode {
+    repos: Vec<Rc<Repo>>,
+    children: HashMap<CommitRef, TrieNode>,
 }
 
 /// A repository entry stored inside [`TrieNode`], carrying the information needed to rank
 /// repositories when their histories share a common prefix.
 #[derive(Debug, PartialEq, Eq)]
-struct Repo<'a> {
-    path: &'a Path,
+struct Repo {
+    path: PathBuf,
     priority: i32,
 }
 
-impl Ord for Repo<'_> {
+impl Ord for Repo {
     /// A lower ordering means that the repository is considered the original in a fork.
     /// Using the supplied value, and breaking ties with the alphabetical ordering of the name, for
     /// stability.
@@ -61,7 +63,7 @@ impl Ord for Repo<'_> {
     }
 }
 
-impl PartialOrd for Repo<'_> {
+impl PartialOrd for Repo {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -95,25 +97,30 @@ impl PartialEq<Self> for CommitRef {
 
 impl Eq for CommitRef {}
 
-impl<'a> HistoryTrie<'a> {
+impl HistoryTrie {
     /// Inserts a repository's sampled commit sequence into the trie.
     ///
     /// Each commit in `commits` creates (or navigates to) a child node, and the repository is
     /// recorded at every node it passes through. An [`CommitRef::EoH`] sentinel is appended after
     /// the last commit to mark where this repository's history ends.
-    pub fn insert(&mut self, repo: &'a Path, priority: i32, commits: &[CommitId]) {
+    pub fn insert(&mut self, repo_path: &Path, priority: i32, commits: &[CommitId]) {
         assert!(!commits.is_empty());
+        let repo = self
+            .all_repos
+            .entry(repo_path.to_owned())
+            .or_insert_with(|| Rc::new(Repo { path: repo_path.to_owned(), priority }));
+
         let mut current_node = &mut self.root;
 
         for &commit in commits {
             // Navigate to the child node, creating it if it doesn't exist.
             let node = current_node.children.entry(CommitRef::GitCommit(commit)).or_default();
-            node.repos.push(Repo { path: repo, priority });
+            node.repos.push(repo.clone());
             current_node = node;
         }
 
         let mut node = TrieNode::default();
-        node.repos.push(Repo { path: repo, priority });
+        node.repos.push(repo.clone());
         let existing = current_node.children.insert(CommitRef::EoH, node);
         assert!(existing.is_none());
     }
@@ -184,7 +191,7 @@ mod tests {
     use crate::git::CommitId;
     use crate::history_trie::HistoryTrie;
     use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn test() {
@@ -200,8 +207,8 @@ mod tests {
         // Unrelated histories
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
-                ((repo2.clone(), 1), vec![commit4, commit5]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.as_path(), 1), vec![commit4, commit5]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -212,8 +219,8 @@ mod tests {
         // Fork is a strict superset
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
-                ((repo2.clone(), 1), vec![commit1, commit2, commit3, commit4]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.as_path(), 1), vec![commit1, commit2, commit3, commit4]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -224,8 +231,8 @@ mod tests {
         // "Fork" is a strict subset
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit3, commit4]),
-                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit3, commit4]),
+                ((repo2.as_path(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3, commit4]),
@@ -236,8 +243,8 @@ mod tests {
         // Identical histories
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
-                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.as_path(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([(repo1.clone(), vec![commit1, commit2, commit3]), (repo2.clone(), vec![])]),
         );
@@ -245,8 +252,8 @@ mod tests {
         // Diverging histories - Shorter is kept
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit3]),
-                ((repo2.clone(), 1), vec![commit1, commit2, commit4, commit5]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit3]),
+                ((repo2.as_path(), 1), vec![commit1, commit2, commit4, commit5]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit3]),
@@ -257,8 +264,8 @@ mod tests {
         // Diverging histories - Longer is kept
         do_test(
             &HashMap::from_iter([
-                ((repo1.clone(), 0), vec![commit1, commit2, commit4, commit5]),
-                ((repo2.clone(), 1), vec![commit1, commit2, commit3]),
+                ((repo1.as_path(), 0), vec![commit1, commit2, commit4, commit5]),
+                ((repo2.as_path(), 1), vec![commit1, commit2, commit3]),
             ]),
             &HashMap::from_iter([
                 (repo1.clone(), vec![commit1, commit2, commit4, commit5]),
@@ -267,10 +274,10 @@ mod tests {
         );
     }
 
-    fn do_test(repos: &HashMap<(PathBuf, i32), Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
+    fn do_test(repos: &HashMap<(&Path, i32), Vec<CommitId>>, expected: &HashMap<PathBuf, Vec<CommitId>>) {
         let mut trie = HistoryTrie::new();
         for ((repo, priority), commits) in repos {
-            trie.insert(repo.as_ref(), *priority, &commits);
+            trie.insert(repo, *priority, &commits);
         }
         assert_eq!(&trie.get_all_sequences_iterative(), expected);
     }
