@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use time_period::{YearMonth, YearWeek};
+use time_period::{YearMonth, YearQuarter, YearWeek};
 use util::PathExt;
 use walkdir::WalkDir;
 
@@ -84,7 +84,7 @@ struct Args {
         long,
         value_name = "PERIOD",
         default_value = "month",
-        help = "Time granularity for sampling commits: month or week"
+        help = "Time granularity for sampling commits: month, quarter, or week"
     )]
     period: PeriodArg,
 
@@ -98,12 +98,15 @@ struct Args {
     languages: bool,
 }
 
-/// Controls whether history is sampled per calendar month or per ISO week.
+/// Controls the frequency of history sampling.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum, Default)]
 pub enum PeriodArg {
+    Week,
+
     #[default]
     Month,
-    Week,
+
+    Quarter,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -138,6 +141,13 @@ fn main() -> anyhow::Result<()> {
 
     let start = Instant::now();
     let chart_path = match args.period {
+        PeriodArg::Week => calculate_stats::<YearWeek>(
+            &repos_with_config,
+            &base_dir,
+            detect_forks,
+            args.suppress_progress,
+            &args.output_dir,
+        )?,
         PeriodArg::Month => calculate_stats::<YearMonth>(
             &repos_with_config,
             &base_dir,
@@ -145,7 +155,7 @@ fn main() -> anyhow::Result<()> {
             args.suppress_progress,
             &args.output_dir,
         )?,
-        PeriodArg::Week => calculate_stats::<YearWeek>(
+        PeriodArg::Quarter => calculate_stats::<YearQuarter>(
             &repos_with_config,
             &base_dir,
             detect_forks,
