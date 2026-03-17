@@ -31,27 +31,6 @@ use walkdir::WalkDir;
 
 const MAX_PERIODS: usize = 200;
 
-const CONFIG_HELP: &str = r#"Path to a TOML configuration file.
-
-The file is a map of Unix glob patterns to repository settings:
-
-  ["**/*"]
-  min_lines = 5000
-  skip_languages = ["Xml", "Json"]
-
-  ["**/some-repo"]
-  ignore = true
-
-Available settings per pattern:
-  ignore          (bool)        Exclude matching repositories entirely [default: false]
-  skip_languages  ([string])    Languages to exclude from the line count [default: none]
-  min_lines       (integer)     Minimum lines of code required for a repository to appear in the report [default: 1]
-  from_time       (date)        Only count commits from this date onward (YYYY-MM-DD) [default: none]
-  archived        (bool)        Treat matching repositories as archived. Archived repositories are assumed to finish at the last commit, as opposed to propagating until the current date [default: false]
-  fork_priority   (integer)     Priority used during fork detection. When two repositories share commit history, the one with the lower value is treated as the original and keeps the shared commits; the other has those commits removed. Ties are broken alphabetically. [default: 0]
-
-Multiple patterns can match a repository; settings are merged (ignore/archived are OR'd, min_lines takes the max, skip_languages are combined, fork_priority takes the min)."#;
-
 #[derive(Debug, clap::Parser)]
 #[command(
     version,
@@ -84,7 +63,7 @@ struct Args {
         long,
         value_name = "CONFIG_FILE",
         help = "TOML file controlling which repositories to include and additional configuration",
-        long_help = CONFIG_HELP
+        long_help = config::HELP
     )]
     config: Option<PathBuf>,
 
