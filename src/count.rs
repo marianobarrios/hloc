@@ -23,12 +23,12 @@ type StatsCache = HashMap<BlobId, Option<(tokei::LanguageType, usize)>>;
 
 pub fn get_stats_from_repos<P: TimePeriod>(
     base_path: &Path,
-    repos_with_config: &HashMap<PathBuf, RepoConfig>,
+    repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
 ) -> anyhow::Result<(Stats<P>, P, P)> {
     // count
-    let mut stats = get_stats_in_repos_impl(base_path, repos_with_config, detect_forks, suppress_progress)?;
+    let mut stats = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress)?;
 
     // post-processing
     let min_period = stats
@@ -38,22 +38,19 @@ pub fn get_stats_from_repos<P: TimePeriod>(
         .min()
         .expect("there should be at least one period");
     let this_period = P::current();
-    fill_gaps(&mut stats, repos_with_config, min_period, this_period);
-    remove_min_lines_repos(&mut stats, repos_with_config);
+    fill_gaps(&mut stats, repos, min_period, this_period);
+    remove_min_lines_repos(&mut stats, repos);
 
     Ok((stats, min_period, this_period))
 }
 
 fn get_stats_in_repos_impl<P: TimePeriod>(
     base_path: &Path,
-    repos_with_config: &HashMap<PathBuf, RepoConfig>,
+    repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
 ) -> anyhow::Result<Stats<P>> {
-    let filtered_repos: HashMap<_, _> =
-        repos_with_config.iter().filter(|&(_, config)| !config.ignore).collect();
-
-    let total_repos = filtered_repos.len();
+    let total_repos = repos.len();
     let max_step_width = format!("{total_repos}").len();
 
     let finished_repos = AtomicUsize::new(0);
@@ -69,13 +66,11 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     // code, taking the last commit of each period of time.
     bar.set_position(1);
     bar.set_message("sampling commits");
-    let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, &filtered_repos);
+    let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, repos);
 
     if detect_forks {
-        let priorities: HashMap<_, _> = repos_with_config
-            .iter()
-            .map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0)))
-            .collect();
+        let priorities: HashMap<_, _> =
+            repos.iter().map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0))).collect();
         remove_commits_from_forks(&mut samples, &priorities);
     }
 
@@ -83,7 +78,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     bar.set_length(total_samples as u64);
 
     // The first level of concurrency is by repository
-    filtered_repos.par_iter().for_each(|(&path, &config)| {
+    repos.par_iter().for_each(|(path, config)| {
         let display_name = display_name(base_path, path);
 
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
@@ -132,10 +127,10 @@ fn remove_commits_from_forks<P: TimePeriod>(
 
 fn sample_all_commits<P: TimePeriod>(
     base_path: &Path,
-    filtered_repos: &HashMap<&PathBuf, &RepoConfig>,
+    repos: &HashMap<PathBuf, RepoConfig>,
 ) -> HashMap<PathBuf, BTreeMap<P, CommitId>> {
     let samples = Mutex::new(HashMap::new());
-    filtered_repos.par_iter().for_each(|(&repo_path, &repo_config)| {
+    repos.par_iter().for_each(|(repo_path, repo_config)| {
         let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
             .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
             .unwrap();
@@ -332,9 +327,9 @@ fn fill_gaps<P: TimePeriod>(
 ///
 /// A repository is kept if at least one snapshot, in at least one language, has a line count
 /// greater than or equal to `min_lines`.
-fn remove_min_lines_repos<P>(stats: &mut Stats<P>, repos_with_config: &HashMap<PathBuf, RepoConfig>) {
+fn remove_min_lines_repos<P>(stats: &mut Stats<P>, repos: &HashMap<PathBuf, RepoConfig>) {
     stats.repositories.retain(|repo, historic_stats| {
-        let min_lines = repos_with_config[repo].min_lines as usize;
+        let min_lines = repos[repo].min_lines as usize;
         historic_stats.periods.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
     });
 }
