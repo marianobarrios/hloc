@@ -50,6 +50,13 @@ struct Args {
     suppress_progress: bool,
 
     #[arg(
+        long,
+        value_name = "LEVEL",
+        help = "Enable logging at the given severity threshold (error, warn, info, debug, trace); implies --suppress-progress"
+    )]
+    log: Option<LogLevel>,
+
+    #[arg(
         short,
         long,
         value_name = "DIRECTORY",
@@ -86,6 +93,28 @@ struct Args {
     languages: bool,
 }
 
+/// Log severity threshold for the `--log` option.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl From<LogLevel> for log::LevelFilter {
+    fn from(level: LogLevel) -> Self {
+        match level {
+            LogLevel::Error => log::LevelFilter::Error,
+            LogLevel::Warn => log::LevelFilter::Warn,
+            LogLevel::Info => log::LevelFilter::Info,
+            LogLevel::Debug => log::LevelFilter::Debug,
+            LogLevel::Trace => log::LevelFilter::Trace,
+        }
+    }
+}
+
 /// Controls the frequency of history sampling.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
 pub enum PeriodArg {
@@ -97,9 +126,17 @@ pub enum PeriodArg {
 }
 
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
-
     let args = Args::parse();
+
+    if let Some(level) = args.log {
+        env_logger::Builder::new()
+            .filter_level(level.into())
+            // tokei logs too many warnings
+            .filter_module("tokei", log::LevelFilter::Error)
+            .init();
+    } else {
+        env_logger::init();
+    }
     debug!("parsed arguments: {args:#?}");
 
     if args.languages {
@@ -131,6 +168,7 @@ fn main() -> anyhow::Result<()> {
     let repos = repos.into_iter().filter(|(_, config)| !config.ignore).collect();
     let base_dir = util::longest_common_subpath(&args.repo_dirs);
     let detect_forks = !args.no_fork_detection;
+    let no_progress = args.suppress_progress || args.log.is_some();
 
     let resolved_period = match args.period {
         PeriodArg::Auto => {
@@ -144,27 +182,15 @@ fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     let chart_path = match resolved_period {
         PeriodArg::Auto => unreachable!(),
-        PeriodArg::Week => calculate_stats::<YearWeek>(
-            &repos,
-            &base_dir,
-            detect_forks,
-            args.suppress_progress,
-            &args.output_dir,
-        )?,
-        PeriodArg::Month => calculate_stats::<YearMonth>(
-            &repos,
-            &base_dir,
-            detect_forks,
-            args.suppress_progress,
-            &args.output_dir,
-        )?,
-        PeriodArg::Quarter => calculate_stats::<YearQuarter>(
-            &repos,
-            &base_dir,
-            detect_forks,
-            args.suppress_progress,
-            &args.output_dir,
-        )?,
+        PeriodArg::Week => {
+            calculate_stats::<YearWeek>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+        }
+        PeriodArg::Month => {
+            calculate_stats::<YearMonth>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+        }
+        PeriodArg::Quarter => {
+            calculate_stats::<YearQuarter>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+        }
     };
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
 
