@@ -195,7 +195,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn choose_period_automatically(filtered_repos: &HashMap<PathBuf, RepoConfig>, base_dir: &Path) -> PeriodArg {
-    let earliest = find_earliest_commit_date(&base_dir, &filtered_repos);
+    let earliest = find_earliest_commit_date(base_dir, filtered_repos);
     info!("doing automatic period selection, earliest commit date: {earliest}");
     let today = Local::now().date_naive();
     if period_count::<YearWeek>(earliest, today) <= MAX_PERIODS {
