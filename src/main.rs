@@ -8,12 +8,19 @@ mod stats;
 mod time_period;
 mod util;
 
+use crate::git::CommitId;
 use crate::time_period::TimePeriod;
+use crate::util::datetime_from_epoch_seconds;
 use anyhow::{Context, bail};
+use chrono::{Local, NaiveDate};
 use clap::Parser;
 use config::{Config, RepoConfig};
 use console::style;
+use git2::Sort;
 use globset::{GlobBuilder, GlobMatcher};
+use log::{debug, info};
+use rayon::iter::IntoParallelRefIterator;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -21,6 +28,8 @@ use std::time::Instant;
 use time_period::{YearMonth, YearQuarter, YearWeek};
 use util::PathExt;
 use walkdir::WalkDir;
+
+const MAX_PERIODS: usize = 200;
 
 const CONFIG_HELP: &str = r#"Path to a TOML configuration file.
 
@@ -83,8 +92,8 @@ struct Args {
         short,
         long,
         value_name = "PERIOD",
-        default_value = "month",
-        help = "Time granularity for sampling commits: month, quarter, or week"
+        default_value = "auto",
+        help = "Time granularity for sampling commits: auto (default), month, quarter, or week"
     )]
     period: PeriodArg,
 
@@ -99,19 +108,21 @@ struct Args {
 }
 
 /// Controls the frequency of history sampling.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
 pub enum PeriodArg {
+    /// Pick the finest granularity that keeps the chart under 200 periods.
+    Auto,
     Week,
-
-    #[default]
     Month,
-
     Quarter,
 }
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
+
     let args = Args::parse();
+    debug!("parsed arguments: {args:#?}");
+
     if args.languages {
         print_language_list();
         return Ok(());
@@ -124,39 +135,52 @@ fn main() -> anyhow::Result<()> {
         }
         None => Vec::new(),
     };
-    let repos = collect_repositories(&args.repo_dirs);
-    if repos.is_empty() {
+
+    let repo_paths = collect_repositories(&args.repo_dirs);
+    if repo_paths.is_empty() {
         let dirs =
             args.repo_dirs.iter().map(|d| format!("\"{}\"", d.display())).collect::<Vec<_>>().join(", ");
         bail!("No Git repositories found in {dirs}");
     }
-    let repos_with_config =
-        repos.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
+    let repos: HashMap<_, _> =
+        repo_paths.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
     if args.show_resolved_config {
-        println!("{}", toml::to_string(&repos_with_config).expect("resolved config should be serializable"));
+        println!("{}", toml::to_string(&repos).expect("resolved config should be serializable"));
         return Ok(());
     }
+
+    let repos = repos.into_iter().filter(|(_, config)| !config.ignore).collect();
     let base_dir = util::longest_common_subpath(&args.repo_dirs);
     let detect_forks = !args.no_fork_detection;
 
+    let resolved_period = match args.period {
+        PeriodArg::Auto => {
+            let chosen = choose_period_automatically(&repos, &base_dir);
+            info!("chosen period: {chosen:?}");
+            chosen
+        }
+        explicit => explicit,
+    };
+
     let start = Instant::now();
-    let chart_path = match args.period {
+    let chart_path = match resolved_period {
+        PeriodArg::Auto => unreachable!(),
         PeriodArg::Week => calculate_stats::<YearWeek>(
-            &repos_with_config,
+            &repos,
             &base_dir,
             detect_forks,
             args.suppress_progress,
             &args.output_dir,
         )?,
         PeriodArg::Month => calculate_stats::<YearMonth>(
-            &repos_with_config,
+            &repos,
             &base_dir,
             detect_forks,
             args.suppress_progress,
             &args.output_dir,
         )?,
         PeriodArg::Quarter => calculate_stats::<YearQuarter>(
-            &repos_with_config,
+            &repos,
             &base_dir,
             detect_forks,
             args.suppress_progress,
@@ -166,8 +190,21 @@ fn main() -> anyhow::Result<()> {
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
 
     let url = format!("file://{}", chart_path.canonicalize().expect("valid path").to_str_or_panic());
-    eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repos_with_config.len());
+    eprintln!("🏁 Counted {count} repositories in {time}. 🔗: {url}", count = repo_paths.len());
     Ok(())
+}
+
+fn choose_period_automatically(filtered_repos: &HashMap<PathBuf, RepoConfig>, base_dir: &Path) -> PeriodArg {
+    let earliest = find_earliest_commit_date(&base_dir, &filtered_repos);
+    info!("doing automatic period selection, earliest commit date: {earliest}");
+    let today = Local::now().date_naive();
+    if period_count::<YearWeek>(earliest, today) <= MAX_PERIODS {
+        PeriodArg::Week
+    } else if period_count::<YearMonth>(earliest, today) <= MAX_PERIODS {
+        PeriodArg::Month
+    } else {
+        PeriodArg::Quarter
+    }
 }
 
 fn print_language_list() {
@@ -242,6 +279,34 @@ fn is_git_repo(path: &Path) -> bool {
 pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
     let rel = pathdiff::diff_paths(path, base_path).unwrap_or_else(|| path.to_owned());
     if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel }
+}
+
+/// Returns the date of the oldest commit across all non-ignored repositories, or the specified
+/// `from_time` setting.
+fn find_earliest_commit_date(base_path: &Path, repos: &HashMap<PathBuf, RepoConfig>) -> NaiveDate {
+    repos
+        .par_iter()
+        .map(|(repo_path, config)| match config.from_time {
+            Some(time) => time,
+            None => earliest_commit_date(base_path, repo_path),
+        })
+        .min()
+        .unwrap()
+}
+
+fn earliest_commit_date(base_path: &Path, repo_path: &PathBuf) -> NaiveDate {
+    let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic()).unwrap();
+    let mut revwalk = repo.revwalk().unwrap();
+    revwalk.simplify_first_parent().unwrap();
+    revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
+    revwalk.push_head().unwrap();
+    let first_commit = CommitId::from_oid(revwalk.next().unwrap().unwrap());
+    datetime_from_epoch_seconds(first_commit.to_object(&repo).time().seconds()).date_naive()
+}
+
+/// Counts how many periods of type `P` fall between `start` and `today` (inclusive).
+fn period_count<P: TimePeriod>(start: NaiveDate, today: NaiveDate) -> usize {
+    P::from_datelike(start).iter_to(P::from_datelike(today)).count()
 }
 
 fn calculate_stats<P: TimePeriod>(
