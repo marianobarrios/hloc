@@ -35,9 +35,13 @@ pub fn write_output<P: TimePeriod>(
     copy_file_from_embedded(output_dir, "chart.js")?;
     copy_file_from_embedded(output_dir, "chart.css")?;
 
+    let period_label = P::axis_label();
     let data_file = output_dir.join("data.js");
-    fs::write(&data_file, format!("by_repo_data = {by_repo_data};\nby_lang_data = {by_lang_data};\n"))
-        .with_context(|| format!("cannot write file {}", data_file.display()))?;
+    fs::write(
+        &data_file,
+        format!("by_repo_data = {by_repo_data};\nby_lang_data = {by_lang_data};\nperiod_label = \"{period_label}\";\n"),
+    )
+    .with_context(|| format!("cannot write file {}", data_file.display()))?;
     Ok(output_dir.join("chart.html"))
 }
 

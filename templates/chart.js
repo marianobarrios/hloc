@@ -37,7 +37,7 @@ const options = {
         x: {
             title: {
                 display: true,
-                text: 'Month',
+                text: period_label,
                 font: { weight: 'bold' }
             }
         },

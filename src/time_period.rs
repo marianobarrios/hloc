@@ -10,6 +10,9 @@ pub trait TimePeriod: Ord + Copy + Display + Debug + Send + Sync {
     /// Advances to the next period in-place.
     fn inc(&mut self);
 
+    /// Human-readable label for the x-axis (e.g. "Week", "Month", "Quarter").
+    fn axis_label() -> &'static str;
+
     /// Returns the period that contains the current instant.
     fn current() -> Self {
         Self::from_datelike(Utc::now())
@@ -58,6 +61,10 @@ impl TimePeriod for YearMonth {
         Self { year: datelike.year(), month: datelike.month() }
     }
 
+    fn axis_label() -> &'static str {
+        "Month"
+    }
+
     fn inc(&mut self) {
         if self.month == 12 {
             self.year += 1;
@@ -88,6 +95,10 @@ pub struct YearQuarter {
 impl TimePeriod for YearQuarter {
     fn from_datelike<T: Datelike>(datelike: T) -> Self {
         Self { year: datelike.year(), quarter: (datelike.month() - 1) / 3 + 1 }
+    }
+
+    fn axis_label() -> &'static str {
+        "Quarter"
     }
 
     fn inc(&mut self) {
@@ -126,6 +137,10 @@ impl TimePeriod for YearWeek {
         let date = NaiveDate::from_ymd_opt(datelike.year(), datelike.month(), datelike.day()).unwrap();
         let iso = date.iso_week();
         Self { year: iso.year(), week: iso.week() }
+    }
+
+    fn axis_label() -> &'static str {
+        "Week"
     }
 
     fn inc(&mut self) {
