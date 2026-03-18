@@ -11,6 +11,7 @@ use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use linked_hash_set::LinkedHashSet;
+use log::{debug, info, trace};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -39,7 +40,16 @@ pub fn get_stats_from_repos<P: TimePeriod>(
         .expect("there should be at least one period");
     let this_period = P::current();
     fill_gaps(&mut stats, repos, min_period, this_period);
+    let repos_before_filter = stats.repositories.len();
     remove_min_lines_repos(&mut stats, repos);
+    let excluded = repos_before_filter - stats.repositories.len();
+    if excluded > 0 {
+        info!(
+            "excluded {} {} below min_lines threshold",
+            excluded,
+            if excluded == 1 { "repository" } else { "repositories" }
+        );
+    }
 
     Ok((stats, min_period, this_period))
 }
@@ -68,14 +78,35 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     bar.set_message("sampling commits");
     let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, repos);
 
+    let total_sampled: usize = samples.values().map(|x| x.len()).sum();
+    info!("sampled {} commits across {} repositories", total_sampled, repos.len());
+    for (repo, repo_samples) in &samples {
+        debug!("{}: {} commits sampled", display_name(base_path, repo).display(), repo_samples.len());
+    }
+
     if detect_forks {
+        info!("running fork detection");
         let priorities: HashMap<_, _> =
             repos.iter().map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0))).collect();
         remove_commits_from_forks(&mut samples, &priorities);
+        let total_after_fork: usize = samples.values().map(|x| x.len()).sum();
+
+        let removed = total_sampled - total_after_fork;
+        if removed > 0 {
+            info!("fork detection removed {} duplicate commits", removed);
+            for (repo, repo_samples) in &samples {
+                debug!(
+                    "{}: {} commits after deduplication",
+                    display_name(base_path, repo).display(),
+                    repo_samples.len()
+                );
+            }
+        }
     }
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     bar.set_length(total_samples as u64);
+    info!("counting lines across {} commits", total_samples);
 
     // The first level of concurrency is by repository
     repos.par_iter().for_each(|(path, config)| {
@@ -88,11 +119,16 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
             move || bar.inc(1)
         });
 
+        let n_periods = stats.periods.len();
         total_stats.lock_or_panic().insert(path.to_owned(), stats);
 
         let finished_repos = finished_repos.fetch_add(1, Ordering::SeqCst) + 1;
         remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
+        info!(
+            "({finished_repos}/{total_repos}) {repo_name} ({n_periods} periods)",
+            repo_name = display_name.display()
+        );
         let counter = style(format!("[{finished_repos:max_step_width$}/{total_repos}]")).dim();
         bar.println(format!("{counter} {}", display_name.display()));
     });
@@ -237,6 +273,7 @@ fn get_stats_from_commit(
     skip_languages: &[tokei::LanguageType],
     cache: &Mutex<StatsCache>,
 ) -> CodeStats {
+    trace!("analyzing commit {:?} in {}", commit_id, repo_path.display());
     // Opening the repository independently for each commit is the most natural way to access
     // a Git repository concurrently in Rust (read only).
     let repo = git2::Repository::open(base_path.join(repo_path)).unwrap();
@@ -287,6 +324,8 @@ fn count_lines_impl(
     if let Some(lang) = languages::detect_language(repo, blob_id, file_name)
         && !skip_languages.contains(&lang)
     {
+        trace!("{}: counting as {}", file_name.display(), lang.name());
+
         // this is the most expensive step with respect to Git, postponing it until it's really needed
         let blob = blob_id.to_object(repo);
 

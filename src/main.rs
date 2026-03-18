@@ -18,10 +18,11 @@ use config::{Config, RepoConfig};
 use console::style;
 use git2::Sort;
 use globset::{GlobBuilder, GlobMatcher};
-use log::{debug, info};
+use log::{debug, info, trace};
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use std::collections::HashMap;
+use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -52,7 +53,7 @@ struct Args {
     #[arg(
         long,
         value_name = "LEVEL",
-        help = "Enable logging at the given severity threshold (error, warn, info, debug, trace); implies --suppress-progress"
+        help = "Enable logging at the given severity threshold (info, debug, trace); implies --suppress-progress"
     )]
     log: Option<LogLevel>,
 
@@ -96,8 +97,6 @@ struct Args {
 /// Log severity threshold for the `--log` option.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, clap::ValueEnum)]
 enum LogLevel {
-    Error,
-    Warn,
     Info,
     Debug,
     Trace,
@@ -106,8 +105,6 @@ enum LogLevel {
 impl From<LogLevel> for log::LevelFilter {
     fn from(level: LogLevel) -> Self {
         match level {
-            LogLevel::Error => log::LevelFilter::Error,
-            LogLevel::Warn => log::LevelFilter::Warn,
             LogLevel::Info => log::LevelFilter::Info,
             LogLevel::Debug => log::LevelFilter::Debug,
             LogLevel::Trace => log::LevelFilter::Trace,
@@ -123,6 +120,18 @@ pub enum PeriodArg {
     Week,
     Month,
     Quarter,
+}
+
+impl Display for PeriodArg {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            PeriodArg::Week => "weekly",
+            PeriodArg::Month => "monthly",
+            PeriodArg::Quarter => "quarterly",
+            PeriodArg::Auto => "auto",
+        };
+        write!(f, "{label}")
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -158,6 +167,10 @@ fn main() -> anyhow::Result<()> {
             args.repo_dirs.iter().map(|d| format!("\"{}\"", d.display())).collect::<Vec<_>>().join(", ");
         bail!("No Git repositories found in {dirs}");
     }
+    info!("found {} repositories", repo_paths.len());
+    for repo in &repo_paths {
+        trace!("{}", repo.display());
+    }
     let repos: HashMap<_, _> =
         repo_paths.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
     if args.show_resolved_config {
@@ -165,18 +178,29 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let repos = repos.into_iter().filter(|(_, config)| !config.ignore).collect();
+    let repos: HashMap<_, _> = repos.into_iter().filter(|(_, config)| !config.ignore).collect();
+    let excluded = repo_paths.len() - repos.len();
+    if excluded > 0 {
+        info!(
+            "excluded {} {} (marked as ignored in config)",
+            excluded,
+            if excluded == 1 { "repository" } else { "repositories" }
+        );
+    }
     let base_dir = util::longest_common_subpath(&args.repo_dirs);
     let detect_forks = !args.no_fork_detection;
     let no_progress = args.suppress_progress || args.log.is_some();
 
     let resolved_period = match args.period {
         PeriodArg::Auto => {
-            let chosen = choose_period_automatically(&repos, &base_dir);
-            info!("chosen period: {chosen:?}");
-            chosen
+            let chosen_period = choose_period_automatically(&repos, &base_dir);
+            info!("using {chosen_period} sampling (auto-selected)");
+            chosen_period
         }
-        explicit => explicit,
+        explicit_period => {
+            debug!("using {explicit_period} sampling (explicit)");
+            explicit_period
+        }
     };
 
     let start = Instant::now();
@@ -201,7 +225,7 @@ fn main() -> anyhow::Result<()> {
 
 fn choose_period_automatically(filtered_repos: &HashMap<PathBuf, RepoConfig>, base_dir: &Path) -> PeriodArg {
     let earliest = find_earliest_commit_date(base_dir, filtered_repos);
-    info!("doing automatic period selection, earliest commit date: {earliest}");
+    debug!("auto period selection: earliest commit date {earliest}");
     let today = Local::now().date_naive();
     if period_count::<YearWeek>(earliest, today) <= MAX_PERIODS {
         PeriodArg::Week
@@ -324,5 +348,6 @@ fn calculate_stats<P: TimePeriod>(
     let (stats, min, max) =
         count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress)?;
     let chart_path = charts::write_output(output_dir, base_dir, &stats, min, max)?;
+    info!("report written to {}", chart_path.display());
     Ok(chart_path)
 }
