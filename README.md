@@ -40,6 +40,7 @@ hloc [OPTIONS] <BASE_DIR>...
 | `-o, --output-dir <DIRECTORY>` | Where to write the HTML report (default: `out/`) |
 | `-c, --config <CONFIG_FILE>`   | TOML configuration file (see below) |
 | `-p, --period <PERIOD>`        | Time granularity for sampling commits: `auto` (default), `week`, `month`, or `quarter`. `auto` picks the finest granularity that keeps the chart under 200 data points |
+| `-t, --threads <N>`            | Number of parallel threads (default: number of CPUs) |
 | `-s, --suppress-progress`      | Do not print progress to stderr |
 | `--log <LEVEL>`                | Enable logging at the given severity threshold: `info`, `debug`, or `trace`. Automatically disables interactive progress output |
 | `--show-resolved-config`       | Print the resolved per-repository configuration as TOML and exit |

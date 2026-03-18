@@ -84,6 +84,15 @@ struct Args {
     )]
     period: PeriodArg,
 
+    #[arg(
+        short,
+        long,
+        value_name = "N",
+        default_value_t = default_parallelism(),
+        help = "Number of parallel threads (default: number of CPUs)"
+    )]
+    threads: usize,
+
     #[arg(short, long, action, help = "Do not try to detect forks to avoid double counting")]
     no_fork_detection: bool,
 
@@ -134,6 +143,10 @@ impl Display for PeriodArg {
     }
 }
 
+fn default_parallelism() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -147,6 +160,12 @@ fn main() -> anyhow::Result<()> {
         env_logger::init();
     }
     debug!("parsed arguments: {args:#?}");
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(args.threads)
+        .build_global()
+        .expect("failed to build thread pool");
+    debug!("using {} parallel thread(s)", args.threads);
 
     if args.languages {
         print_language_list();
