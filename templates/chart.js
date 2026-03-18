@@ -37,7 +37,8 @@ const options = {
         x: {
             title: {
                 display: true,
-                text: 'Month'
+                text: 'Month',
+                font: { weight: 'bold' }
             }
         },
         y: {
@@ -45,7 +46,8 @@ const options = {
             min: 0,
             title: {
                 display: true,
-                text: 'Lines'
+                text: 'Lines',
+                font: { weight: 'bold' }
             }
         }
     },

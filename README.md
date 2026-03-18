@@ -14,6 +14,12 @@
 
 - hloc is fast: it uses aggressive parallelism and can count decades-old repositories with hundreds of thousands of lines in a few second in a modern computer.
 
+## Example
+
+Counting the lines of code of [Postgres](https://github.com/postgres/postgres):
+
+![PostgreSQL lines of code over time](postgres-loc.png)
+
 ## Installation from source
 
 **Prerequisites:** [Rust](https://rustup.rs).
