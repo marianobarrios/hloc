@@ -9,6 +9,7 @@ use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
 use anyhow::Context;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
+use globset::GlobMatcher;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use linked_hash_set::LinkedHashSet;
 use log::{debug, info, trace};
@@ -114,10 +115,17 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
-        let stats = get_stats_from_samples(base_path, path, &samples[path], &config.skip_languages, {
-            let bar = bar.clone();
-            move || bar.inc(1)
-        });
+        let stats = get_stats_from_samples(
+            base_path,
+            path,
+            &samples[path],
+            &config.skip_languages,
+            &config.skip_dirs,
+            {
+                let bar = bar.clone();
+                move || bar.inc(1)
+            },
+        );
 
         let n_periods = stats.periods.len();
         total_stats.lock_or_panic().insert(path.to_owned(), stats);
@@ -235,6 +243,7 @@ fn get_stats_from_samples<P, F>(
     repo_path: &Path,
     samples: &BTreeMap<P, CommitId>,
     skip_languages: &[tokei::LanguageType],
+    skip_dirs: &[GlobMatcher],
     update_reporter: F,
 ) -> HistoricStats<P>
 where
@@ -255,8 +264,14 @@ where
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
-                    let stats =
-                        get_stats_from_commit(base_path, repo_path, commit_id, skip_languages, &cache);
+                    let stats = get_stats_from_commit(
+                        base_path,
+                        repo_path,
+                        commit_id,
+                        skip_languages,
+                        skip_dirs,
+                        &cache,
+                    );
                     snapshots.lock_or_panic().insert(period, stats);
                     update_reporter();
                 }
@@ -271,6 +286,7 @@ fn get_stats_from_commit(
     repo_path: &Path,
     commit_id: CommitId,
     skip_languages: &[tokei::LanguageType],
+    skip_dirs: &[GlobMatcher],
     cache: &Mutex<StatsCache>,
 ) -> CodeStats {
     trace!("analyzing commit {:?} in {}", commit_id, repo_path.display());
@@ -281,9 +297,21 @@ fn get_stats_from_commit(
     let commit = commit_id.to_object(&repo);
     let tree = commit.tree().unwrap();
     let mut languages = HashMap::new();
-    tree.walk(TreeWalkMode::PreOrder, |_, entry| {
+    tree.walk(TreeWalkMode::PreOrder, |root, entry| {
+        let kind = entry.kind().unwrap();
+
+        // Skip directories matching skip_dirs patterns
+        if kind == ObjectType::Tree {
+            let entry_path = format!("{}{}", root, entry.name().unwrap());
+            trace!("checking directory: {entry_path}");
+            if skip_dirs.iter().any(|m| m.is_match(&entry_path)) {
+                debug!("skipping ignored directory: {entry_path}");
+                return TreeWalkResult::Skip;
+            }
+        }
+
         // only process files, not other object types
-        if let Some(ObjectType::Blob) = entry.kind() {
+        if kind == ObjectType::Blob {
             let blob_id = BlobId::from_oid(entry.id());
             let file_name = Path::new(entry.name().unwrap());
             let result = count_lines(&repo, blob_id, file_name, skip_languages, cache);
@@ -293,6 +321,7 @@ fn get_stats_from_commit(
                 *languages.entry(language).or_insert(0) += lines;
             }
         }
+
         TreeWalkResult::Ok
     })
     .unwrap();

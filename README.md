@@ -61,6 +61,7 @@ The config file is a TOML map of [Unix glob patterns](https://en.wikipedia.org/w
 ["**/*"]
 min_lines = 5000
 skip_languages = ["Xml", "Json", "Yaml"]
+skip_dirs = ["vendor", "**/generated"]
 
 ["**/generated-sdk"]
 ignore = true
@@ -80,6 +81,7 @@ archived = true
 |---|---|---|---|
 | `ignore` | bool | `false` | Exclude matching repositories from the report entirely |
 | `skip_languages` | \[string\] | `[]` | Languages to exclude from the line count (uses tokei language names, e.g. `"Rust"`, `"TypeScript"`; run `hloc --languages` for the full list) |
+| `skip_dirs` | \[string\] | `[]` | Directories to exclude from the line count, as glob patterns relative to the repository root (e.g. `"vendor"`, `"**/generated"`) |
 | `min_lines` | integer | `1` | Minimum lines of code a repository must reach at any point to appear in the report |
 | `from_time` | date | — | Ignore commits before this date (`YYYY-MM-DD`) |
 | `archived` | bool | `false` | Cap the repository's history at its last commit instead of propagating to the current date |
