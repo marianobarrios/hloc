@@ -110,15 +110,14 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     info!("counting lines across {} commits", total_samples);
 
     // The first level of concurrency is by repository
-    repos.par_iter().for_each(|(path, config)| {
-        let display_name = display_name(base_path, path);
+    repos.par_iter().for_each(|(repo_path, config)| {
+        let display_name = display_name(base_path, repo_path);
 
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
         let stats = get_stats_from_samples(
-            base_path,
-            path,
-            &samples[path],
+            repo_path,
+            &samples[repo_path],
             &config.skip_languages,
             &config.skip_dirs,
             {
@@ -128,7 +127,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
         );
 
         let n_periods = stats.periods.len();
-        total_stats.lock_or_panic().insert(path.to_owned(), stats);
+        total_stats.lock_or_panic().insert(repo_path.to_owned(), stats);
 
         let finished_repos = finished_repos.fetch_add(1, Ordering::SeqCst) + 1;
         remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
@@ -239,7 +238,6 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
 }
 
 fn get_stats_from_samples<P, F>(
-    base_path: &Path,
     repo_path: &Path,
     samples: &BTreeMap<P, CommitId>,
     skip_languages: &[tokei::LanguageType],
@@ -264,14 +262,8 @@ where
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
-                    let stats = get_stats_from_commit(
-                        base_path,
-                        repo_path,
-                        commit_id,
-                        skip_languages,
-                        skip_dirs,
-                        &cache,
-                    );
+                    let stats =
+                        get_stats_from_commit(repo_path, commit_id, skip_languages, skip_dirs, &cache);
                     snapshots.lock_or_panic().insert(period, stats);
                     update_reporter();
                 }
@@ -282,7 +274,6 @@ where
 }
 
 fn get_stats_from_commit(
-    base_path: &Path,
     repo_path: &Path,
     commit_id: CommitId,
     skip_languages: &[tokei::LanguageType],
@@ -292,7 +283,7 @@ fn get_stats_from_commit(
     trace!("analyzing commit {:?} in {}", commit_id, repo_path.display());
     // Opening the repository independently for each commit is the most natural way to access
     // a Git repository concurrently in Rust (read only).
-    let repo = git2::Repository::open(base_path.join(repo_path)).unwrap();
+    let repo = git2::Repository::open(repo_path).unwrap();
 
     let commit = commit_id.to_object(&repo);
     let tree = commit.tree().unwrap();
