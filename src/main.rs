@@ -207,13 +207,12 @@ fn main() -> anyhow::Result<()> {
             if excluded == 1 { "repository" } else { "repositories" }
         );
     }
-    let base_dir = util::longest_common_subpath(&args.repo_dirs);
     let detect_forks = !args.no_fork_detection;
     let no_progress = args.suppress_progress || args.log.is_some();
 
     let resolved_period = match args.period {
         PeriodArg::Auto => {
-            let chosen_period = choose_period_automatically(&repos, &base_dir);
+            let chosen_period = choose_period_automatically(&repos);
             info!("using {chosen_period} sampling (auto-selected)");
             chosen_period
         }
@@ -222,6 +221,8 @@ fn main() -> anyhow::Result<()> {
             explicit_period
         }
     };
+
+    let base_dir = util::longest_common_subpath(&args.repo_dirs);
 
     let start = Instant::now();
     let chart_path = match resolved_period {
@@ -243,8 +244,8 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn choose_period_automatically(filtered_repos: &HashMap<PathBuf, RepoConfig>, base_dir: &Path) -> PeriodArg {
-    let earliest = find_earliest_commit_date(base_dir, filtered_repos);
+fn choose_period_automatically(filtered_repos: &HashMap<PathBuf, RepoConfig>) -> PeriodArg {
+    let earliest = find_earliest_commit_date(filtered_repos);
     debug!("auto period selection: earliest commit date {earliest}");
     let today = Local::now().date_naive();
     if period_count::<YearWeek>(earliest, today) <= MAX_PERIODS {
@@ -332,25 +333,26 @@ pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
 
 /// Returns the date of the oldest commit across all non-ignored repositories, or the specified
 /// `from_time` setting.
-fn find_earliest_commit_date(base_path: &Path, repos: &HashMap<PathBuf, RepoConfig>) -> NaiveDate {
+fn find_earliest_commit_date(repos: &HashMap<PathBuf, RepoConfig>) -> NaiveDate {
     repos
         .par_iter()
         .map(|(repo_path, config)| match config.from_time {
             Some(time) => time,
-            None => earliest_commit_date(base_path, repo_path),
+            None => earliest_commit_date(repo_path),
         })
         .min()
         .unwrap()
 }
 
-fn earliest_commit_date(base_path: &Path, repo_path: &PathBuf) -> NaiveDate {
-    let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic()).unwrap();
+fn earliest_commit_date(repo_path: &Path) -> NaiveDate {
+    let repo = git2::Repository::open(repo_path.to_str_or_panic()).unwrap();
     let mut revwalk = repo.revwalk().unwrap();
     revwalk.simplify_first_parent().unwrap();
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
     revwalk.push_head().unwrap();
     let first_commit = CommitId::from_oid(revwalk.next().unwrap().unwrap());
-    datetime_from_epoch_seconds(first_commit.to_object(&repo).time().seconds()).date_naive()
+    let earliest_datetime = datetime_from_epoch_seconds(first_commit.to_object(&repo).time().seconds());
+    earliest_datetime.date_naive()
 }
 
 /// Counts how many periods of type `P` fall between `start` and `today` (inclusive).
