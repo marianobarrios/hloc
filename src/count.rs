@@ -28,31 +28,23 @@ pub fn get_stats_from_repos<P: TimePeriod>(
     repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<(Stats<P>, P, P)> {
+) -> anyhow::Result<Stats<P>> {
     // count
-    let mut stats = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress)?;
+    let stats_map = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress)?;
 
-    // post-processing
-    let min_period = stats
-        .repositories
+    let min_period = stats_map
         .values()
         .flat_map(|s| s.periods.keys().copied())
         .min()
         .expect("there should be at least one period");
-    let this_period = P::current();
-    fill_gaps(&mut stats, repos, min_period, this_period);
-    let repos_before_filter = stats.repositories.len();
-    remove_min_lines_repos(&mut stats, repos);
-    let excluded = repos_before_filter - stats.repositories.len();
-    if excluded > 0 {
-        info!(
-            "excluded {} {} below min_lines threshold",
-            excluded,
-            if excluded == 1 { "repository" } else { "repositories" }
-        );
-    }
 
-    Ok((stats, min_period, this_period))
+    let mut stats = Stats { from: min_period, to: P::current(), repositories: stats_map };
+
+    // post-processing
+    fill_gaps(&mut stats, repos);
+    remove_min_lines_repos(&mut stats.repositories, repos);
+
+    Ok(stats)
 }
 
 fn get_stats_in_repos_impl<P: TimePeriod>(
@@ -60,7 +52,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<Stats<P>> {
+) -> anyhow::Result<HashMap<PathBuf, HistoricStats<P>>> {
     let total_repos = repos.len();
     let max_step_width = format!("{total_repos}").len();
 
@@ -142,7 +134,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 
     bar.finish_and_clear();
 
-    Ok(Stats { repositories: total_stats.into_inner().unwrap() })
+    Ok(total_stats.into_inner().unwrap())
 }
 
 /// Detects forks of project to avoid double counting.
@@ -362,12 +354,7 @@ fn count_lines_impl(
     }
 }
 
-fn fill_gaps<P: TimePeriod>(
-    stats: &mut Stats<P>,
-    configs: &HashMap<PathBuf, RepoConfig>,
-    min_period: P,
-    this_period: P,
-) {
+fn fill_gaps<P: TimePeriod>(stats: &mut Stats<P>, configs: &HashMap<PathBuf, RepoConfig>) {
     for (repo, historic_stats) in &mut stats.repositories {
         // Normally, this function will fill gaps at the end of the series until the present time
         // with the last known value, assuming a stale repository. However, if the repository is
@@ -375,10 +362,10 @@ fn fill_gaps<P: TimePeriod>(
         let max_period = if configs[repo].archived {
             *historic_stats.periods.keys().max().expect("there should be at least one commit")
         } else {
-            this_period
+            stats.to
         };
 
-        for period in min_period.iter_to(max_period) {
+        for period in stats.from.iter_to(max_period) {
             let floor =
                 historic_stats.periods.range(..=period).last().map(|(_, v)| v).cloned().unwrap_or_default();
             historic_stats.periods.entry(period).or_insert(floor);
@@ -390,9 +377,21 @@ fn fill_gaps<P: TimePeriod>(
 ///
 /// A repository is kept if at least one snapshot, in at least one language, has a line count
 /// greater than or equal to `min_lines`.
-fn remove_min_lines_repos<P>(stats: &mut Stats<P>, repos: &HashMap<PathBuf, RepoConfig>) {
-    stats.repositories.retain(|repo, historic_stats| {
+fn remove_min_lines_repos<P>(
+    stats_map: &mut HashMap<PathBuf, HistoricStats<P>>,
+    repos: &HashMap<PathBuf, RepoConfig>,
+) {
+    let repos_before_filter = stats_map.len();
+    stats_map.retain(|repo, historic_stats| {
         let min_lines = repos[repo].min_lines as usize;
         historic_stats.periods.values().any(|stats| stats.languages.values().any(|&n| n >= min_lines))
     });
+    let excluded = repos_before_filter - stats_map.len();
+    if excluded > 0 {
+        info!(
+            "excluded {} {} below min_lines threshold",
+            excluded,
+            if excluded == 1 { "repository" } else { "repositories" }
+        );
+    }
 }

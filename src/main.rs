@@ -366,10 +366,9 @@ fn calculate_stats<P: TimePeriod>(
     detect_forks: bool,
     suppress_progress: bool,
     output_dir: &Path,
-) -> Result<PathBuf, anyhow::Error> {
-    let (stats, min, max) =
-        count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress)?;
-    let chart_path = charts::write_output(output_dir, base_dir, &stats, min, max)?;
+) -> anyhow::Result<PathBuf> {
+    let stats = count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress)?;
+    let chart_path = charts::write_output(output_dir, base_dir, &stats)?;
     info!("report written to {}", chart_path.display());
     Ok(chart_path)
 }
