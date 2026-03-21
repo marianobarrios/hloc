@@ -16,7 +16,7 @@ impl CommitId {
         Self(oid)
     }
 
-    pub fn to_object<'a>(self, repo: &'a git2::Repository) -> git2::Commit<'a> {
+    pub fn to_object(self, repo: &git2::Repository) -> git2::Commit<'_> {
         repo.find_commit(self.0).unwrap()
     }
 }
@@ -36,7 +36,7 @@ impl BlobId {
         Self(oid)
     }
 
-    pub fn to_object<'a>(self, repo: &'a git2::Repository) -> git2::Blob<'a> {
+    pub fn to_object(self, repo: &git2::Repository) -> git2::Blob<'_> {
         repo.find_blob(self.0).unwrap()
     }
 }

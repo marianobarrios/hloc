@@ -108,7 +108,7 @@ impl HistoryTrie {
 
         let previous = self.all_repos.insert(repo_path.to_owned(), repo.clone());
         if previous.is_some() {
-            bail!("repository {repo_path:?} already inserted");
+            bail!("repository {} already inserted", repo_path.display());
         }
 
         let mut current_node = &mut self.root;
@@ -154,7 +154,7 @@ impl HistoryTrie {
             if let Some(CommitRef::EoH) = path.last() {
                 let converted_path = Self::extract_path(&path);
                 for repo in &node.repos {
-                    results.insert(repo.path.to_owned(), converted_path.clone());
+                    results.insert(repo.path.clone(), converted_path.clone());
                 }
             }
 

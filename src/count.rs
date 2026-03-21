@@ -28,9 +28,9 @@ pub fn get_stats_from_repos<P: TimePeriod>(
     repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<Stats<P>> {
+) -> Stats<P> {
     // count
-    let stats_map = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress)?;
+    let stats_map = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress);
 
     let min_period = stats_map
         .values()
@@ -44,7 +44,7 @@ pub fn get_stats_from_repos<P: TimePeriod>(
     fill_gaps(&mut stats, repos);
     remove_min_lines_repos(&mut stats.repositories, repos);
 
-    Ok(stats)
+    stats
 }
 
 fn get_stats_in_repos_impl<P: TimePeriod>(
@@ -52,7 +52,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     repos: &HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
-) -> anyhow::Result<HashMap<PathBuf, HistoricStats<P>>> {
+) -> HashMap<PathBuf, HistoricStats<P>> {
     let total_repos = repos.len();
     let max_step_width = format!("{total_repos}").len();
 
@@ -71,30 +71,16 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     bar.set_message("sampling commits");
     let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, repos);
 
-    let total_sampled: usize = samples.values().map(|x| x.len()).sum();
-    info!("sampled {} commits across {} repositories", total_sampled, repos.len());
+    let total_samples: usize = samples.values().map(|x| x.len()).sum();
+    info!("sampled {} commits across {} repositories", total_samples, repos.len());
     for (repo, repo_samples) in &samples {
         debug!("{}: {} commits sampled", display_name(base_path, repo).display(), repo_samples.len());
     }
 
     if detect_forks {
-        info!("running fork detection");
-        let priorities: HashMap<_, _> =
+        let priorities =
             repos.iter().map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0))).collect();
-        remove_commits_from_forks(&mut samples, &priorities);
-        let total_after_fork: usize = samples.values().map(|x| x.len()).sum();
-
-        let removed = total_sampled - total_after_fork;
-        if removed > 0 {
-            info!("fork detection removed {} duplicate commits", removed);
-            for (repo, repo_samples) in &samples {
-                debug!(
-                    "{}: {} commits after deduplication",
-                    display_name(base_path, repo).display(),
-                    repo_samples.len()
-                );
-            }
-        }
+        remove_commits_from_forks(base_path, &mut samples, &priorities);
     }
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
@@ -134,7 +120,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 
     bar.finish_and_clear();
 
-    Ok(total_stats.into_inner_or_panic())
+    total_stats.into_inner_or_panic()
 }
 
 /// Detects forks of project to avoid double counting.
@@ -142,9 +128,13 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 /// IDs and can be identified. This function detects such shared histories, removes them from all
 /// involved repositories except one (chosen alphabetically).
 fn remove_commits_from_forks<P: TimePeriod>(
+    base_path: &Path,
     samples: &mut HashMap<PathBuf, BTreeMap<P, CommitId>>,
     priorities: &HashMap<PathBuf, i32>,
 ) {
+    info!("running fork detection");
+    let total_samples_before: usize = samples.values().map(|x| x.len()).sum();
+
     let mut history_trie = HistoryTrie::default();
     for (repo, commit_map) in samples.iter() {
         let commits: Vec<_> = commit_map.values().copied().collect();
@@ -153,10 +143,22 @@ fn remove_commits_from_forks<P: TimePeriod>(
     }
 
     let result = history_trie.get_all_sequences();
-
     for (repo, repo_samples) in samples.iter_mut() {
         let remaining_commits: HashSet<_> = result[repo].iter().copied().collect();
         repo_samples.retain(|_, commit| remaining_commits.contains(commit));
+    }
+
+    let total_samples_after: usize = samples.values().map(|x| x.len()).sum();
+    let removed = total_samples_before - total_samples_after;
+    if removed > 0 {
+        info!("fork detection removed {} duplicate commits", removed);
+        for (repo, repo_samples) in samples {
+            debug!(
+                "{}: {} commits after deduplication",
+                display_name(base_path, repo).display(),
+                repo_samples.len()
+            );
+        }
     }
 }
 
