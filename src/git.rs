@@ -5,8 +5,11 @@ pub struct CommitId(git2::Oid);
 
 impl CommitId {
     #[cfg(test)]
-    pub fn from_hex_string(hex_string: &str) -> Result<Self, git2::Error> {
-        Ok(Self::from_oid(git2::Oid::from_str(hex_string)?))
+    pub fn from_hex_string(hex_string: &str) -> Self {
+        Self::from_oid(
+            git2::Oid::from_str(hex_string)
+                .unwrap_or_else(|_| panic!("hex string {} should be valid", hex_string)),
+        )
     }
 
     pub fn from_oid(oid: git2::Oid) -> Self {

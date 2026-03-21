@@ -200,11 +200,11 @@ mod tests {
 
     #[test]
     fn test() {
-        let commit1 = CommitId::from_hex_string("1").unwrap();
-        let commit2 = CommitId::from_hex_string("2").unwrap();
-        let commit3 = CommitId::from_hex_string("3").unwrap();
-        let commit4 = CommitId::from_hex_string("4").unwrap();
-        let commit5 = CommitId::from_hex_string("5").unwrap();
+        let commit1 = CommitId::from_hex_string("1");
+        let commit2 = CommitId::from_hex_string("2");
+        let commit3 = CommitId::from_hex_string("3");
+        let commit4 = CommitId::from_hex_string("4");
+        let commit5 = CommitId::from_hex_string("5");
 
         let repo1 = PathBuf::from("repo1");
         let repo2 = PathBuf::from("repo2");

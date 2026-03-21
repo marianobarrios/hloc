@@ -134,7 +134,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 
     bar.finish_and_clear();
 
-    Ok(total_stats.into_inner().unwrap())
+    Ok(total_stats.into_inner_or_panic())
 }
 
 /// Detects forks of project to avoid double counting.
@@ -173,7 +173,7 @@ fn sample_all_commits<P: TimePeriod>(
         let repo_samples: BTreeMap<P, CommitId> = sample_commits(&repo, repo_config);
         samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
     });
-    samples.into_inner().unwrap()
+    samples.into_inner_or_panic()
 }
 
 fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
@@ -266,7 +266,7 @@ where
             });
         }
     });
-    HistoricStats { periods: Arc::try_unwrap(period_stats).unwrap().into_inner().unwrap() }
+    HistoricStats { periods: Arc::try_unwrap(period_stats).unwrap().into_inner_or_panic() }
 }
 
 fn get_stats_from_commit(

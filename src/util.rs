@@ -14,11 +14,19 @@ pub trait MutexExt<T> {
     /// `Mutex::lock` returns a result that is almost always unwrapped right away without any
     /// extra treatment. This method does that internally, to avoid polluting client code.
     fn lock_or_panic(&self) -> MutexGuard<'_, T>;
+
+    /// `Mutex::into_inner` returns a result that is almost always unwrapped right away without any
+    /// extra treatment. This method does that internally, to avoid polluting client code.
+    fn into_inner_or_panic(self) -> T;
 }
 
 impl<T> MutexExt<T> for Mutex<T> {
     fn lock_or_panic(&self) -> MutexGuard<'_, T> {
         self.lock().expect("lock should not be poisoned")
+    }
+
+    fn into_inner_or_panic(self) -> T {
+        self.into_inner().expect("lock should not be poisoned")
     }
 }
 
