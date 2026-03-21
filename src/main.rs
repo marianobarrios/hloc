@@ -326,6 +326,7 @@ fn is_git_repo(path: &Path) -> bool {
 /// directories. However, when there is only one repository and it is the base itself, the relative
 /// path would be empty, making reports confusing. In that case we use the last component of the
 /// base path, which is the name of the directory of the repository itself.
+#[must_use]
 pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
     let rel = pathdiff::diff_paths(path, base_path).unwrap_or_else(|| path.to_owned());
     if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel }
@@ -367,7 +368,7 @@ fn calculate_stats<P: TimePeriod>(
     suppress_progress: bool,
     output_dir: &Path,
 ) -> anyhow::Result<PathBuf> {
-    let stats = count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress)?;
+    let stats = count::get_stats_from_repos::<P>(base_dir, repos, detect_forks, suppress_progress);
     let chart_path = charts::write_output(output_dir, base_dir, &stats)?;
     info!("report written to {}", chart_path.display());
     Ok(chart_path)
