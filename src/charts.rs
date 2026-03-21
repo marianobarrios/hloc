@@ -17,11 +17,9 @@ pub fn write_output<P: TimePeriod>(
     output_dir: &Path,
     base_dir: &Path,
     stats: &Stats<P>,
-    min_period: P,
-    max_period: P,
 ) -> anyhow::Result<PathBuf> {
-    let by_repo_data = get_by_repo_chart(base_dir, stats, min_period, max_period);
-    let by_lang_data = get_by_lang_chart(stats, min_period, max_period);
+    let by_repo_data = get_by_repo_chart(base_dir, stats);
+    let by_lang_data = get_by_lang_chart(stats);
 
     match fs::remove_dir_all(output_dir) {
         Ok(()) => {}
@@ -52,13 +50,8 @@ fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result
     Ok(())
 }
 
-fn get_by_repo_chart<P: TimePeriod>(
-    base_dir: &Path,
-    stats: &Stats<P>,
-    min_period: P,
-    max_period: P,
-) -> serde_json::Value {
-    let x_labels: Vec<_> = min_period.iter_to(max_period).map(|p| p.to_string()).collect();
+fn get_by_repo_chart<P: TimePeriod>(base_dir: &Path, stats: &Stats<P>) -> serde_json::Value {
+    let x_labels: Vec<_> = stats.from.iter_to(stats.to).map(|p| p.to_string()).collect();
     let dataset: Vec<_> = get_sorted_repos(stats)
         .iter()
         .map(|repo| {
@@ -83,8 +76,8 @@ fn get_by_repo_chart<P: TimePeriod>(
     })
 }
 
-fn get_by_lang_chart<P: TimePeriod>(stats: &Stats<P>, min_period: P, max_period: P) -> serde_json::Value {
-    let x_labels: Vec<_> = min_period.iter_to(max_period).map(|p| p.to_string()).collect();
+fn get_by_lang_chart<P: TimePeriod>(stats: &Stats<P>) -> serde_json::Value {
+    let x_labels: Vec<_> = stats.from.iter_to(stats.to).map(|p| p.to_string()).collect();
 
     let all_languages = get_sorted_languages(stats);
 

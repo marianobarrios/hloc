@@ -4,6 +4,8 @@ use std::path::PathBuf;
 /// Statistics across repositories and time
 #[derive(Debug)]
 pub struct Stats<P> {
+    pub from: P,
+    pub to: P,
     pub repositories: HashMap<PathBuf, HistoricStats<P>>,
 }
 

@@ -98,12 +98,7 @@ impl HistoryTrie {
     /// Each commit in `commits` creates (or navigates to) a child node, and the repository is
     /// recorded at every node it passes through. An [`CommitRef::EoH`] sentinel is appended after
     /// the last commit to mark where this repository's history ends.
-    pub fn insert(
-        &mut self,
-        repo_path: &Path,
-        priority: i32,
-        commits: &[CommitId],
-    ) -> Result<(), anyhow::Error> {
+    pub fn insert(&mut self, repo_path: &Path, priority: i32, commits: &[CommitId]) -> anyhow::Result<()> {
         if commits.is_empty() {
             bail!("commit sequence is empty");
         }
