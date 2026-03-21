@@ -12,12 +12,12 @@ use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use globset::GlobMatcher;
 use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 use linked_hash_set::LinkedHashSet;
-use log::{debug, info, trace};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use tracing::{Span, debug, error_span, info, trace};
 
 // relying on the fact that Git oid are stable across commits if the file is identical
 // to avoid counting lines in the same file more than once
@@ -113,6 +113,10 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     repos.par_iter().for_each(|(repo_path, config)| {
         let display_name = display_name(base_path, repo_path);
 
+        let _span = tracing::error_span!("repo", repo = %display_name.display()).entered();
+
+        info!("counting {} samples", samples[repo_path].len());
+
         add_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
         let stats = get_stats_from_samples(
@@ -126,16 +130,12 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
             },
         );
 
-        let n_periods = stats.periods.len();
         total_stats.lock_or_panic().insert(repo_path.to_owned(), stats);
 
         let finished_repos = finished_repos.fetch_add(1, Ordering::SeqCst) + 1;
         remove_current_repo(&mut currently_counting.lock_or_panic(), &bar, &display_name);
 
-        info!(
-            "({finished_repos}/{total_repos}) {repo_name} ({n_periods} periods)",
-            repo_name = display_name.display()
-        );
+        info!("repository finished");
         let counter = style(format!("[{finished_repos:max_step_width$}/{total_repos}]")).dim();
         bar.println(format!("{counter} {}", display_name.display()));
     });
@@ -255,13 +255,17 @@ where
     // The second level of concurrency (after parallelizing by repository) is by commit. This is
     // necessary for when a couple of repositories are much bigger than the rest, or when simply
     // analyzing only one.
+    let current_span = Span::current();
     rayon::scope(|s| {
         for (&period, &commit_id) in samples {
             s.spawn({
+                let span = error_span!(parent: &current_span, "commit", id = ?commit_id);
                 let snapshots = period_stats.clone();
                 let cache = cache.clone();
                 let update_reporter = update_reporter.clone();
                 move |_| {
+                    let _enter = span.enter();
+                    debug!("starting counting lines in commit");
                     let stats =
                         get_stats_from_commit(repo_path, commit_id, skip_languages, skip_dirs, &cache);
                     snapshots.lock_or_panic().insert(period, stats);
@@ -280,9 +284,9 @@ fn get_stats_from_commit(
     skip_dirs: &[GlobMatcher],
     cache: &Mutex<StatsCache>,
 ) -> CodeStats {
-    trace!("analyzing commit {:?} in {}", commit_id, repo_path.display());
     // Opening the repository independently for each commit is the most natural way to access
     // a Git repository concurrently in Rust (read only).
+    trace!("opening {} as Git repo", repo_path.display());
     let repo = git2::Repository::open(repo_path).unwrap();
 
     let commit = commit_id.to_object(&repo);

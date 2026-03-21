@@ -18,7 +18,6 @@ use config::{Config, RepoConfig};
 use console::style;
 use git2::Sort;
 use globset::{GlobBuilder, GlobMatcher};
-use log::{debug, info, trace};
 use rayon::iter::IntoParallelRefIterator;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -27,6 +26,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use time_period::{YearMonth, YearQuarter, YearWeek};
+use tracing::{debug, info, trace};
 use util::PathExt;
 use walkdir::WalkDir;
 
@@ -111,12 +111,12 @@ enum LogLevel {
     Trace,
 }
 
-impl From<LogLevel> for log::LevelFilter {
+impl From<LogLevel> for tracing::Level {
     fn from(level: LogLevel) -> Self {
         match level {
-            LogLevel::Info => log::LevelFilter::Info,
-            LogLevel::Debug => log::LevelFilter::Debug,
-            LogLevel::Trace => log::LevelFilter::Trace,
+            LogLevel::Info => tracing::Level::INFO,
+            LogLevel::Debug => tracing::Level::DEBUG,
+            LogLevel::Trace => tracing::Level::TRACE,
         }
     }
 }
@@ -150,15 +150,16 @@ fn default_parallelism() -> usize {
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    if let Some(level) = args.log {
-        env_logger::Builder::new()
-            .filter_level(level.into())
+    let filter = match args.log {
+        Some(level) => {
+            let level: tracing::Level = level.into();
             // tokei logs too many warnings
-            .filter_module("tokei", log::LevelFilter::Error)
-            .init();
-    } else {
-        env_logger::init();
-    }
+            tracing_subscriber::EnvFilter::new(format!("{level},tokei=error"))
+        }
+        None => tracing_subscriber::EnvFilter::from_default_env(),
+    };
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+
     debug!("parsed arguments: {args:#?}");
 
     rayon::ThreadPoolBuilder::new()
