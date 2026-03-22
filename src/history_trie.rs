@@ -16,7 +16,6 @@
 
 use crate::git::CommitId;
 use anyhow::bail;
-use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -43,25 +42,15 @@ struct TrieNode {
 
 /// A repository entry stored inside [`TrieNode`], carrying the information needed to rank
 /// repositories when their histories share a common prefix.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// This struct implements the ['Ord'] and [`PartialOrd`] with a specific meaning: A lower ordering
+/// means that the repository is considered the original in a fork. The automatic implementation
+/// relies on field order: fields are ordered so that `priority` is compared first, with `path` as
+/// a tiebreaker for stability.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct Repo {
-    path: PathBuf,
     priority: i32,
-}
-
-impl Ord for Repo {
-    /// A lower ordering means that the repository is considered the original in a fork.
-    /// Using the supplied value, and breaking ties with the alphabetical ordering of the name, for
-    /// stability.
-    fn cmp(&self, other: &Self) -> Ordering {
-        (self.priority, &self.path).cmp(&(other.priority, &other.path))
-    }
-}
-
-impl PartialOrd for Repo {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+    path: PathBuf,
 }
 
 /// A reference to a position in a repository's commit sequence.
@@ -104,7 +93,7 @@ impl HistoryTrie {
         }
 
         // using an `Rc` to avoid cloning the repository name for each commit
-        let repo = Rc::new(Repo { path: repo_path.to_owned(), priority });
+        let repo = Rc::new(Repo { priority, path: repo_path.to_owned() });
 
         let previous = self.all_repos.insert(repo_path.to_owned(), repo.clone());
         if previous.is_some() {
