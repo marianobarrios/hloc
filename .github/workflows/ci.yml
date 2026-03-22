@@ -28,6 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # clone complete history because a tests needs it
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test
 

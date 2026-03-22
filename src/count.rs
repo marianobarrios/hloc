@@ -386,3 +386,21 @@ fn remove_min_lines_repos<P: TimePeriod>(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::git::CommitId;
+
+    // One commit of this repository — the ID is immutable.
+    const COMMIT_HASH: &str = "698edf2f539276b7376d4c2f2bda1c34a7ab04c5";
+
+    #[test]
+    fn counts_specific_commit() {
+        let own_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        println!("own path: {}", own_path.display());
+        let commit_id = CommitId::from_hex_string(COMMIT_HASH);
+        let stats = get_stats_from_commit(&own_path, commit_id, &[], &[], &Mutex::new(HashMap::new()));
+        assert_eq!(stats.languages[&tokei::LanguageType::Rust], 1366);
+    }
+}
