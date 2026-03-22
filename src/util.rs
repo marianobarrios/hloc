@@ -1,14 +1,7 @@
-use chrono::{DateTime, Utc};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, UNIX_EPOCH};
 use unicode_segmentation::UnicodeSegmentation;
-
-pub fn datetime_from_epoch_seconds(seconds: i64) -> DateTime<Utc> {
-    let epoch: DateTime<Utc> = UNIX_EPOCH.into();
-    epoch + Duration::from_secs(seconds as u64)
-}
 
 pub trait MutexExt<T> {
     /// `Mutex::lock` returns a result that is almost always unwrapped right away without any

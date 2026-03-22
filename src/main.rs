@@ -10,9 +10,8 @@ mod util;
 
 use crate::git::CommitId;
 use crate::time_period::TimePeriod;
-use crate::util::datetime_from_epoch_seconds;
 use anyhow::{Context, bail};
-use chrono::{Local, NaiveDate};
+use chrono::{DateTime, Local, NaiveDate};
 use clap::Parser;
 use config::{Config, RepoConfig};
 use console::style;
@@ -351,8 +350,10 @@ fn earliest_commit_date(repo_path: &Path) -> NaiveDate {
     revwalk.simplify_first_parent().unwrap();
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
     revwalk.push_head().unwrap();
-    let first_commit = CommitId::from(revwalk.next().unwrap().unwrap());
-    let earliest_datetime = datetime_from_epoch_seconds(first_commit.into_object(&repo).time().seconds());
+    let first_commit_id = CommitId::from(revwalk.next().unwrap().unwrap());
+    let first_commit = first_commit_id.into_object(&repo);
+    let earliest_datetime =
+        DateTime::from_timestamp(first_commit.time().seconds(), 0).expect("valid epoch seconds");
     earliest_datetime.date_naive()
 }
 
