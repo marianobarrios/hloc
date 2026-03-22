@@ -5,8 +5,9 @@ use crate::history_trie::HistoryTrie;
 use crate::languages;
 use crate::stats::{CodeStats, HistoricStats, Stats};
 use crate::time_period::TimePeriod;
-use crate::util::{MutexExt, PathExt, datetime_from_epoch_seconds};
+use crate::util::{MutexExt, PathExt};
 use anyhow::Context;
+use chrono::DateTime;
 use console::style;
 use git2::{ObjectType, Sort, TreeWalkMode, TreeWalkResult};
 use globset::GlobMatcher;
@@ -214,8 +215,8 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
     for oid in revwalk {
         let commit_id = CommitId::from(oid.unwrap());
         let commit = commit_id.into_object(repo);
-        let time = datetime_from_epoch_seconds(commit.time().seconds());
-        let date_naive = time.date_naive();
+        let date_time = DateTime::from_timestamp(commit.time().seconds(), 0).expect("valid epoch seconds");
+        let date_naive = date_time.date_naive();
 
         if let Some(from) = config.from_time
             && date_naive < from
@@ -225,7 +226,7 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(P::from_datelike(time), commit_id);
+        samples.insert(P::from_datelike(date_time), commit_id);
     }
     samples
 }
