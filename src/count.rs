@@ -215,8 +215,8 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
     for oid in revwalk {
         let commit_id = CommitId::from(oid.unwrap());
         let commit = commit_id.into_object(repo);
-        let date_time = DateTime::from_timestamp(commit.time().seconds(), 0).expect("valid epoch seconds");
-        let date_naive = date_time.date_naive();
+        let date_naive =
+            DateTime::from_timestamp(commit.time().seconds(), 0).expect("valid epoch seconds").date_naive();
 
         if let Some(from) = config.from_time
             && date_naive < from
@@ -226,7 +226,7 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
 
         // as we are iterating in chronological order, the last commit for the period will stay
         // in the map
-        samples.insert(P::from_datelike(date_time), commit_id);
+        samples.insert(P::from_datelike(date_naive), commit_id);
     }
     samples
 }
