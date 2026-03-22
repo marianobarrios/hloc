@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use tracing::{Span, debug, error_span, info, trace};
+use tracing::{Span, debug, info, info_span, trace};
 
 // relying on the fact that Git oid are stable across commits if the file is identical
 // to avoid counting lines in the same file more than once
@@ -26,12 +26,12 @@ type StatsCache = HashMap<BlobId, Option<(tokei::LanguageType, usize)>>;
 
 pub fn get_stats_from_repos<P: TimePeriod>(
     base_path: &Path,
-    repos: &HashMap<PathBuf, RepoConfig>,
+    mut repos: HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
 ) -> Stats<P> {
     // count
-    let stats_map = get_stats_in_repos_impl(base_path, repos, detect_forks, suppress_progress);
+    let stats_map = get_stats_in_repos_impl(base_path, &mut repos, detect_forks, suppress_progress);
 
     let min_period = stats_map
         .values()
@@ -42,15 +42,15 @@ pub fn get_stats_from_repos<P: TimePeriod>(
     let mut stats = Stats { from: min_period, to: P::current(), repositories: stats_map };
 
     // post-processing
-    fill_gaps(&mut stats, repos);
-    remove_min_lines_repos(&mut stats.repositories, repos);
+    fill_gaps(&mut stats, &repos);
+    remove_min_lines_repos(&mut stats.repositories, &repos);
 
     stats
 }
 
 fn get_stats_in_repos_impl<P: TimePeriod>(
     base_path: &Path,
-    repos: &HashMap<PathBuf, RepoConfig>,
+    repos: &mut HashMap<PathBuf, RepoConfig>,
     detect_forks: bool,
     suppress_progress: bool,
 ) -> HashMap<PathBuf, HistoricStats<P>> {
@@ -70,18 +70,21 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     // code, taking the last commit of each period of time.
     bar.set_position(1);
     bar.set_message("sampling commits");
-    let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(base_path, repos);
+    let mut samples: HashMap<PathBuf, BTreeMap<P, CommitId>> = sample_all_commits(repos);
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
     info!("sampled {} commits across {} repositories", total_samples, repos.len());
     for (repo, repo_samples) in &samples {
-        debug!("{}: {} commits sampled", display_name(base_path, repo).display(), repo_samples.len());
+        debug!("{}: {} commits sampled", repo.display(), repo_samples.len());
     }
+
+    // if there are no samples for a repository, remove it
+    repos.retain(|k, _| samples.contains_key(k));
 
     if detect_forks {
         let priorities =
             repos.iter().map(|(repo, conf)| (repo.clone(), conf.fork_priority.unwrap_or(0))).collect();
-        remove_commits_from_forks(base_path, &mut samples, &priorities);
+        remove_commits_from_forks(&mut samples, &priorities);
     }
 
     let total_samples: usize = samples.values().map(|x| x.len()).sum();
@@ -89,10 +92,11 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     info!("counting lines across {} commits", total_samples);
 
     // The first level of concurrency is by repository
+    let current_span = Span::current();
     repos.par_iter().for_each(|(repo_path, config)| {
         let display_name = display_name(base_path, repo_path);
 
-        let _span = error_span!("repo", repo = %display_name.display()).entered();
+        let _span = info_span!(parent: &current_span, "repo", repo = %display_name).entered();
 
         info!("counting {} samples", samples[repo_path].len());
 
@@ -116,7 +120,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 
         info!("repository finished");
         let counter = style(format!("[{finished_repos:max_step_width$}/{total_repos}]")).dim();
-        bar.println(format!("{counter} {}", display_name.display()));
+        bar.println(format!("{counter} {display_name}"));
     });
 
     bar.finish_and_clear();
@@ -129,15 +133,17 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
 /// IDs and can be identified. This function detects such shared histories, removes them from all
 /// involved repositories except one (chosen alphabetically).
 fn remove_commits_from_forks<P: TimePeriod>(
-    base_path: &Path,
     samples: &mut HashMap<PathBuf, BTreeMap<P, CommitId>>,
     priorities: &HashMap<PathBuf, i32>,
 ) {
     info!("running fork detection");
+
     let total_samples_before: usize = samples.values().map(|x| x.len()).sum();
 
     let mut history_trie = HistoryTrie::default();
     for (repo, commit_map) in samples.iter() {
+        assert!(!commit_map.is_empty());
+
         let commits: Vec<_> = commit_map.values().copied().collect();
         let priority = priorities[repo];
         history_trie.insert(repo, priority, &commits).unwrap();
@@ -154,42 +160,44 @@ fn remove_commits_from_forks<P: TimePeriod>(
     if removed > 0 {
         info!("fork detection removed {} duplicate commits", removed);
         for (repo, repo_samples) in samples {
-            debug!(
-                "{}: {} commits after deduplication",
-                display_name(base_path, repo).display(),
-                repo_samples.len()
-            );
+            debug!("{}: {} commits after deduplication", repo.display(), repo_samples.len());
         }
     }
 }
 
 fn sample_all_commits<P: TimePeriod>(
-    base_path: &Path,
     repos: &HashMap<PathBuf, RepoConfig>,
 ) -> HashMap<PathBuf, BTreeMap<P, CommitId>> {
     repos
         .par_iter()
-        .map(|(repo_path, repo_config)| {
-            let repo = git2::Repository::open(base_path.join(repo_path))
+        .filter_map(|(repo_path, repo_config)| {
+            trace!("opening Git repository at: {}", repo_path.display());
+            let repo = git2::Repository::open(repo_path)
                 .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
                 .unwrap();
-            (repo_path.clone(), sample_commits(&repo, repo_config))
+            let commits = sample_commits(&repo, repo_config);
+            if commits.is_empty() {
+                // remove repositories that have not commits after filtering
+                None
+            } else {
+                Some((repo_path.clone(), commits))
+            }
         })
         .collect()
 }
 
-fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
+fn add_current_repo(currently_counting: &mut LinkedHashSet<String>, bar: &ProgressBar, name: &str) {
     currently_counting.insert(name.to_owned());
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn remove_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
+fn remove_current_repo(currently_counting: &mut LinkedHashSet<String>, bar: &ProgressBar, name: &str) {
     currently_counting.remove(name);
     bar.set_message(list_of_current(currently_counting));
 }
 
-fn list_of_current(currently_counting: &LinkedHashSet<PathBuf>) -> String {
-    currently_counting.iter().map(|p| format!("{}", p.display())).collect::<Vec<_>>().join(", ")
+fn list_of_current(currently_counting: &LinkedHashSet<String>) -> String {
+    currently_counting.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
 fn create_progress_bar(suppress: bool) -> ProgressBar {
@@ -251,7 +259,7 @@ where
     let periods = samples
         .par_iter()
         .map(|(&period, &commit_id)| {
-            let _span = error_span!(parent: &current_span, "commit", id = ?commit_id).entered();
+            let _span = info_span!(parent: &current_span, "commit", id = ?commit_id).entered();
             let stats = get_stats_from_commit(repo_path, commit_id, skip_languages, skip_dirs, &cache);
             update_reporter();
             (period, stats)

@@ -233,13 +233,13 @@ fn main() -> anyhow::Result<()> {
     let chart_path = match resolved_period {
         PeriodArg::Auto => unreachable!(),
         PeriodArg::Week => {
-            calculate_stats::<YearWeek>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+            calculate_stats::<YearWeek>(repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
         }
         PeriodArg::Month => {
-            calculate_stats::<YearMonth>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+            calculate_stats::<YearMonth>(repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
         }
         PeriodArg::Quarter => {
-            calculate_stats::<YearQuarter>(&repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
+            calculate_stats::<YearQuarter>(repos, &base_dir, detect_forks, no_progress, &args.output_dir)?
         }
     };
     let time = style(format!("{:.2}s", start.elapsed().as_secs_f32())).blue();
@@ -329,13 +329,14 @@ fn is_git_repo(path: &Path) -> bool {
 }
 
 /// The display name of a repository is its path relative to the common ancestor of the base
-/// directories. However, when there is only one repository and it is the base itself, the relative
+/// directories. However, when there is only one repository, and it is the base itself, the relative
 /// path would be empty, making reports confusing. In that case we use the last component of the
 /// base path, which is the name of the directory of the repository itself.
 #[must_use]
-pub fn display_name(base_path: &Path, path: &Path) -> PathBuf {
+pub fn display_name(base_path: &Path, path: &Path) -> String {
     let rel = pathdiff::diff_paths(path, base_path).unwrap_or_else(|| path.to_owned());
-    if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel }
+    let path = if rel.as_os_str().is_empty() { PathBuf::from(base_path.file_name().unwrap()) } else { rel };
+    path.to_str_or_panic().to_owned()
 }
 
 /// Returns the date of the oldest commit across all non-ignored repositories, or the specified
@@ -370,7 +371,7 @@ fn period_count<P: TimePeriod>(start: NaiveDate, today: NaiveDate) -> usize {
 }
 
 fn calculate_stats<P: TimePeriod>(
-    repos: &HashMap<PathBuf, RepoConfig>,
+    repos: HashMap<PathBuf, RepoConfig>,
     base_dir: &Path,
     detect_forks: bool,
     suppress_progress: bool,
