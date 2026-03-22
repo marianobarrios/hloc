@@ -180,7 +180,12 @@ fn main() -> anyhow::Result<()> {
         None => Vec::new(),
     };
 
-    let repo_paths = collect_repositories(&args.repo_dirs);
+    let repo_dirs: Vec<_> = args.repo_dirs.iter().map(|p| p.canonicalize().unwrap()).collect();
+    for dir in &repo_dirs {
+        debug!("canonicalized directory argument: {}", dir.display());
+    }
+
+    let repo_paths = collect_repositories(&repo_dirs);
     if repo_paths.is_empty() {
         let dirs =
             args.repo_dirs.iter().map(|d| format!("\"{}\"", d.display())).collect::<Vec<_>>().join(", ");
@@ -188,7 +193,7 @@ fn main() -> anyhow::Result<()> {
     }
     info!("found {} repositories", repo_paths.len());
     for repo in &repo_paths {
-        trace!("{}", repo.display());
+        trace!("repository found: {}", repo.display());
     }
     let repos: HashMap<_, _> =
         repo_paths.iter().map(|repo| (repo.to_owned(), configure_repo(repo, &parsed_config))).collect();
@@ -222,6 +227,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     let base_dir = util::longest_common_subpath(&args.repo_dirs);
+    debug!("calculated base dir (longest common subpath): {}", base_dir.display());
 
     let start = Instant::now();
     let chart_path = match resolved_period {
@@ -288,6 +294,7 @@ fn parse_config(file_contents: &str) -> anyhow::Result<Vec<(GlobMatcher, RepoCon
 /// Returns absolute paths.
 fn collect_repositories(base_dirs: &[PathBuf]) -> Vec<PathBuf> {
     let mut repos = Vec::new();
+
     for base_dir in base_dirs {
         // The iterator is created only for its side effects
         WalkDir::new(base_dir)
