@@ -212,8 +212,8 @@ fn sample_commits<P: TimePeriod>(repo: &git2::Repository, config: &RepoConfig) -
 
     revwalk.push_head().unwrap();
     for oid in revwalk {
-        let commit_id = CommitId::from_oid(oid.unwrap());
-        let commit = commit_id.to_object(repo);
+        let commit_id = CommitId::from(oid.unwrap());
+        let commit = commit_id.into_object(repo);
         let time = datetime_from_epoch_seconds(commit.time().seconds());
         let date_naive = time.date_naive();
 
@@ -271,7 +271,7 @@ fn get_stats_from_commit(
     trace!("opening {} as Git repo", repo_path.display());
     let repo = git2::Repository::open(repo_path).unwrap();
 
-    let commit = commit_id.to_object(&repo);
+    let commit = commit_id.into_object(&repo);
     let tree = commit.tree().unwrap();
     let mut languages = HashMap::new();
     tree.walk(TreeWalkMode::PreOrder, |root, entry| {
@@ -289,7 +289,7 @@ fn get_stats_from_commit(
 
         // only process files, not other object types
         if kind == ObjectType::Blob {
-            let blob_id = BlobId::from_oid(entry.id());
+            let blob_id = BlobId::from(entry.id());
             let file_name = Path::new(entry.name().unwrap());
             let result = count_lines(&repo, blob_id, file_name, skip_languages, cache);
 
@@ -333,7 +333,7 @@ fn count_lines_impl(
         trace!("{}: counting as {}", file_name.display(), lang.name());
 
         // this is the most expensive step with respect to Git, postponing it until it's really needed
-        let blob = blob_id.to_object(repo);
+        let blob = blob_id.into_object(repo);
 
         // actual count
         let stats = lang.parse_from_slice(blob.content(), &tokei::Config::default());
