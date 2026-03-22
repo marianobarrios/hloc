@@ -1,0 +1,12 @@
+["**/*"]
+min_lines = 5000
+skip_languages = ["Xml", "Json"]
+
+["**/ignored-repo"]
+ignore = true
+
+["**/archived-repo"]
+archived = true
+from_time = "2020-01-01"
+fork_priority = 2
+skip_dirs = ["target", "vendor/*"]
