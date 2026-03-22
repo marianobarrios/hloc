@@ -5,7 +5,7 @@ use crate::history_trie::HistoryTrie;
 use crate::languages;
 use crate::stats::{CodeStats, HistoricStats, Stats};
 use crate::time_period::TimePeriod;
-use crate::util::{MutexExt, PathExt};
+use crate::util::MutexExt;
 use anyhow::Context;
 use chrono::DateTime;
 use console::style;
@@ -170,7 +170,7 @@ fn sample_all_commits<P: TimePeriod>(
     repos
         .par_iter()
         .map(|(repo_path, repo_config)| {
-            let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
+            let repo = git2::Repository::open(base_path.join(repo_path))
                 .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
                 .unwrap();
             (repo_path.clone(), sample_commits(&repo, repo_config))
@@ -189,7 +189,7 @@ fn remove_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &Pr
 }
 
 fn list_of_current(currently_counting: &LinkedHashSet<PathBuf>) -> String {
-    currently_counting.iter().map(|p| p.to_str_or_panic()).collect::<Vec<_>>().join(", ")
+    currently_counting.iter().map(|p| format!("{}", p.display())).collect::<Vec<_>>().join(", ")
 }
 
 fn create_progress_bar(suppress: bool) -> ProgressBar {

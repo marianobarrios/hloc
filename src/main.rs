@@ -345,7 +345,7 @@ fn find_earliest_commit_date(repos: &HashMap<PathBuf, RepoConfig>) -> NaiveDate 
 }
 
 fn earliest_commit_date(repo_path: &Path) -> NaiveDate {
-    let repo = git2::Repository::open(repo_path.to_str_or_panic()).unwrap();
+    let repo = git2::Repository::open(repo_path).unwrap();
     let mut revwalk = repo.revwalk().unwrap();
     revwalk.simplify_first_parent().unwrap();
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
