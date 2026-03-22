@@ -12,7 +12,6 @@ clap = "4.6"
 console = "0.16"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rust-embed="8.11"
 rayon = "1.11"
 indicatif = { version = "0.18", features = ["rayon"] }
 serde = { version = "1.0", features = ["derive"] }
