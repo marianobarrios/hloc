@@ -20,7 +20,13 @@ Counting the lines of code of [Postgres](https://github.com/postgres/postgres):
 
 ![PostgreSQL lines of code over time](postgres-loc.png)
 
-## Installation from source
+## Installation
+
+### Pre-built binaries
+
+Download the latest binary for your platform from the [Releases](https://github.com/marianobarrios/hloc/releases) page.
+
+### From source
 
 **Prerequisites:** [Rust](https://rustup.rs).
 
