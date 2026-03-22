@@ -1,6 +1,5 @@
 use crate::stats::Stats;
 use crate::time_period::TimePeriod;
-use crate::util::PathExt;
 use crate::{display_name, util};
 use anyhow::Context;
 use serde_json::json;
@@ -60,7 +59,7 @@ fn get_by_repo_chart<P: TimePeriod>(base_dir: &Path, stats: &Stats<P>) -> serde_
             // ends at the last commit and the tail of the x-axis is left empty.
             let period_data: Vec<_> =
                 historic_stats.periods.values().map(|period_stats| period_stats.total_lines()).collect();
-            let label = util::truncate_beginning(display_name(base_dir, repo).to_str_or_panic(), 35, "...");
+            let label = util::truncate_beginning(&display_name(base_dir, repo), 35, "...");
             json!({
                 "label": label,
                 "data": period_data,
