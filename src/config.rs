@@ -138,3 +138,39 @@ where
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: &str = include_str!("../tests/config.toml");
+
+    #[test]
+    fn deserialize_wildcard_pattern() {
+        let config: Config = toml::from_str(CONFIG).unwrap();
+        let entry = config.get("**/*").unwrap();
+        assert_eq!(entry.min_lines, 5000);
+        assert_eq!(entry.skip_languages.len(), 2);
+    }
+
+    #[test]
+    fn deserialize_ignore_flag() {
+        let config: Config = toml::from_str(CONFIG).unwrap();
+        let entry = config.get("**/ignored-repo").unwrap();
+        assert!(entry.ignore);
+    }
+
+    #[test]
+    fn merge_combines_settings() {
+        let config: Config = toml::from_str(CONFIG).unwrap();
+        let wildcard = config.get("**/*").unwrap();
+        let archived = config.get("**/archived-repo").unwrap();
+        let merged = RepoConfig::default().merge(wildcard).merge(archived);
+        assert!(merged.archived);
+        assert_eq!(merged.min_lines, 5000);
+        assert_eq!(merged.skip_languages.len(), 2);
+        assert_eq!(merged.from_time, Some(NaiveDate::from_ymd_opt(2020, 1, 1).unwrap()));
+        assert_eq!(merged.fork_priority, Some(2));
+        assert_eq!(merged.skip_dirs.len(), 2);
+    }
+}
