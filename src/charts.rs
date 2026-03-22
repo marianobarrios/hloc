@@ -56,11 +56,12 @@ fn get_by_repo_chart<P: TimePeriod>(base_dir: &Path, stats: &Stats<P>) -> serde_
         .iter()
         .map(|repo| {
             let historic_stats = &stats.repositories[repo];
-            let period_data: Vec<_> = historic_stats
-                .periods
-                .values()
-                .map(|period_stats| period_stats.languages.values().sum::<usize>())
-                .collect();
+            // For archived repositories, `fill_gaps` only fills up to the last commit, not
+            // `stats.to`. This means `period_data` may be shorter than `x_labels`, which is
+            // intentional: Chart.js aligns data points to the first N labels, so the line
+            // ends at the last commit and the tail of the x-axis is left empty.
+            let period_data: Vec<_> =
+                historic_stats.periods.values().map(|period_stats| period_stats.total_lines()).collect();
             let label = util::truncate_beginning(display_name(base_dir, repo).to_str_or_panic(), 35, "...");
             json!({
                 "label": label,
@@ -134,8 +135,7 @@ fn get_sorted_repos<P: TimePeriod>(global_stats: &Stats<P>) -> Vec<PathBuf> {
         .map(|(repo, historic_stats)| {
             let last_commit =
                 historic_stats.periods.values().last().expect("repository should have at least one commit");
-            let total: usize = last_commit.languages.values().sum();
-            (repo.clone(), total)
+            (repo.clone(), last_commit.total_lines())
         })
         .collect();
     repos.sort_by_key(|&(_, total)| total);

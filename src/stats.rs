@@ -21,3 +21,9 @@ pub struct HistoricStats<P: TimePeriod> {
 pub struct CodeStats {
     pub languages: HashMap<tokei::LanguageType, usize>,
 }
+
+impl CodeStats {
+    pub fn total_lines(&self) -> usize {
+        self.languages.values().sum()
+    }
+}
