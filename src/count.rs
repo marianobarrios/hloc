@@ -91,7 +91,7 @@ fn get_stats_in_repos_impl<P: TimePeriod>(
     repos.par_iter().for_each(|(repo_path, config)| {
         let display_name = display_name(base_path, repo_path);
 
-        let _span = tracing::error_span!("repo", repo = %display_name.display()).entered();
+        let _span = error_span!("repo", repo = %display_name.display()).entered();
 
         info!("counting {} samples", samples[repo_path].len());
 
@@ -166,16 +166,15 @@ fn sample_all_commits<P: TimePeriod>(
     base_path: &Path,
     repos: &HashMap<PathBuf, RepoConfig>,
 ) -> HashMap<PathBuf, BTreeMap<P, CommitId>> {
-    let samples = Mutex::new(HashMap::new());
-    repos.par_iter().for_each(|(repo_path, repo_config)| {
-        let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
-            .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
-            .unwrap();
-
-        let repo_samples: BTreeMap<P, CommitId> = sample_commits(&repo, repo_config);
-        samples.lock_or_panic().insert(repo_path.clone(), repo_samples);
-    });
-    samples.into_inner_or_panic()
+    repos
+        .par_iter()
+        .map(|(repo_path, repo_config)| {
+            let repo = git2::Repository::open(base_path.join(repo_path).to_str_or_panic())
+                .with_context(|| format!("cannot open Git repository at {}", repo_path.display()))
+                .unwrap();
+            (repo_path.clone(), sample_commits(&repo, repo_config))
+        })
+        .collect()
 }
 
 fn add_current_repo(currently_counting: &mut LinkedHashSet<PathBuf>, bar: &ProgressBar, name: &Path) {
@@ -242,33 +241,22 @@ where
     P: TimePeriod,
     F: Fn() + Send + Sync,
 {
-    let period_stats = Arc::new(Mutex::new(BTreeMap::new()));
     let cache: Arc<Mutex<StatsCache>> = Arc::new(Mutex::new(HashMap::new()));
-    let update_reporter = Arc::new(update_reporter);
 
     // The second level of concurrency (after parallelizing by repository) is by commit. This is
     // necessary for when a couple of repositories are much bigger than the rest, or when simply
     // analyzing only one.
     let current_span = Span::current();
-    rayon::scope(|s| {
-        for (&period, &commit_id) in samples {
-            s.spawn({
-                let span = error_span!(parent: &current_span, "commit", id = ?commit_id);
-                let snapshots = period_stats.clone();
-                let cache = cache.clone();
-                let update_reporter = update_reporter.clone();
-                move |_| {
-                    let _enter = span.enter();
-                    debug!("starting counting lines in commit");
-                    let stats =
-                        get_stats_from_commit(repo_path, commit_id, skip_languages, skip_dirs, &cache);
-                    snapshots.lock_or_panic().insert(period, stats);
-                    update_reporter();
-                }
-            });
-        }
-    });
-    HistoricStats { periods: Arc::try_unwrap(period_stats).unwrap().into_inner_or_panic() }
+    let periods = samples
+        .par_iter()
+        .map(|(&period, &commit_id)| {
+            let _span = error_span!(parent: &current_span, "commit", id = ?commit_id).entered();
+            let stats = get_stats_from_commit(repo_path, commit_id, skip_languages, skip_dirs, &cache);
+            update_reporter();
+            (period, stats)
+        })
+        .collect();
+    HistoricStats { periods }
 }
 
 fn get_stats_from_commit(
