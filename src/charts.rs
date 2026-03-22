@@ -3,15 +3,14 @@ use crate::time_period::TimePeriod;
 use crate::util::PathExt;
 use crate::{display_name, util};
 use anyhow::Context;
-use rust_embed::Embed;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
-#[derive(Embed)]
-#[folder = "templates"]
-struct Asset;
+const CHART_HTML: &[u8] = include_bytes!("../templates/chart.html");
+const CHART_JS: &[u8] = include_bytes!("../templates/chart.js");
+const CHART_CSS: &[u8] = include_bytes!("../templates/chart.css");
 
 pub fn write_output<P: TimePeriod>(
     output_dir: &Path,
@@ -29,9 +28,9 @@ pub fn write_output<P: TimePeriod>(
     fs::create_dir(output_dir)
         .with_context(|| format!("cannot create directory {}", output_dir.display()))?;
 
-    copy_file_from_embedded(output_dir, "chart.html")?;
-    copy_file_from_embedded(output_dir, "chart.js")?;
-    copy_file_from_embedded(output_dir, "chart.css")?;
+    write_template(output_dir, "chart.html", CHART_HTML)?;
+    write_template(output_dir, "chart.js", CHART_JS)?;
+    write_template(output_dir, "chart.css", CHART_CSS)?;
 
     let period_label = P::axis_label();
     let data_file = output_dir.join("data.js");
@@ -43,10 +42,9 @@ pub fn write_output<P: TimePeriod>(
     Ok(output_dir.join("chart.html"))
 }
 
-fn copy_file_from_embedded(output_dir: &Path, file_name: &str) -> anyhow::Result<()> {
-    let chart_html = Asset::get(file_name).unwrap();
+fn write_template(output_dir: &Path, file_name: &str, contents: &[u8]) -> anyhow::Result<()> {
     let file = output_dir.join(file_name);
-    fs::write(&file, chart_html.data).with_context(|| format!("cannot write file {}", file.display()))?;
+    fs::write(&file, contents).with_context(|| format!("cannot write file {}", file.display()))?;
     Ok(())
 }
 
