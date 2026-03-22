@@ -226,7 +226,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let base_dir = util::longest_common_subpath(&args.repo_dirs);
+    let base_dir = util::longest_common_subpath(&repo_dirs);
     debug!("calculated base dir (longest common subpath): {}", base_dir.display());
 
     let start = Instant::now();
