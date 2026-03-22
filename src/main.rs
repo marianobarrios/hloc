@@ -351,8 +351,8 @@ fn earliest_commit_date(repo_path: &Path) -> NaiveDate {
     revwalk.simplify_first_parent().unwrap();
     revwalk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE).unwrap();
     revwalk.push_head().unwrap();
-    let first_commit = CommitId::from_oid(revwalk.next().unwrap().unwrap());
-    let earliest_datetime = datetime_from_epoch_seconds(first_commit.to_object(&repo).time().seconds());
+    let first_commit = CommitId::from(revwalk.next().unwrap().unwrap());
+    let earliest_datetime = datetime_from_epoch_seconds(first_commit.into_object(&repo).time().seconds());
     earliest_datetime.date_naive()
 }
 

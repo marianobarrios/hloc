@@ -6,18 +6,19 @@ pub struct CommitId(git2::Oid);
 impl CommitId {
     #[cfg(test)]
     pub fn from_hex_string(hex_string: &str) -> Self {
-        Self::from_oid(
-            git2::Oid::from_str(hex_string)
-                .unwrap_or_else(|_| panic!("hex string {} should be valid", hex_string)),
-        )
+        git2::Oid::from_str(hex_string)
+            .unwrap_or_else(|_| panic!("hex string {} should be valid", hex_string))
+            .into()
     }
 
-    pub fn from_oid(oid: git2::Oid) -> Self {
-        Self(oid)
-    }
-
-    pub fn to_object(self, repo: &git2::Repository) -> git2::Commit<'_> {
+    pub fn into_object(self, repo: &git2::Repository) -> git2::Commit<'_> {
         repo.find_commit(self.0).unwrap()
+    }
+}
+
+impl From<git2::Oid> for CommitId {
+    fn from(oid: git2::Oid) -> Self {
+        Self(oid)
     }
 }
 
@@ -32,11 +33,13 @@ impl Debug for CommitId {
 pub struct BlobId(git2::Oid);
 
 impl BlobId {
-    pub fn from_oid(oid: git2::Oid) -> Self {
-        Self(oid)
-    }
-
-    pub fn to_object(self, repo: &git2::Repository) -> git2::Blob<'_> {
+    pub fn into_object(self, repo: &git2::Repository) -> git2::Blob<'_> {
         repo.find_blob(self.0).unwrap()
+    }
+}
+
+impl From<git2::Oid> for BlobId {
+    fn from(oid: git2::Oid) -> Self {
+        Self(oid)
     }
 }

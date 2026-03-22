@@ -16,7 +16,7 @@ pub fn detect_language(
             // Note: This function will be called again when doing the actual count, that could be
             // avoided introducing some ugliness in the code. However, in practice the effect is
             // small because shebang detection is done infrequently.
-            let blob = blob_oid.to_object(repo);
+            let blob = blob_oid.into_object(repo);
 
             detect_language_from_shebang(blob.content())
         }
