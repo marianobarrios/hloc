@@ -64,7 +64,7 @@ impl Default for RepoConfig {
             ignore: false,
             skip_languages: vec![],
             skip_dirs: vec![],
-            min_lines: 1,
+            min_lines: Self::default_min_lines(),
             from_time: None,
             archived: false,
             fork_priority: None,
