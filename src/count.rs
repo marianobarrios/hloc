@@ -368,7 +368,7 @@ fn fill_gaps<P: TimePeriod>(stats: &mut Stats<P>, configs: &HashMap<PathBuf, Rep
 ///
 /// A repository is kept if at least one snapshot, in at least one language, has a line count
 /// greater than or equal to `min_lines`.
-fn remove_min_lines_repos<P>(
+fn remove_min_lines_repos<P: TimePeriod>(
     stats_map: &mut HashMap<PathBuf, HistoricStats<P>>,
     repos: &HashMap<PathBuf, RepoConfig>,
 ) {

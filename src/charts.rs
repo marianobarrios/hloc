@@ -112,8 +112,8 @@ fn get_by_lang_chart<P: TimePeriod>(stats: &Stats<P>) -> serde_json::Value {
 }
 
 /// Returns all languages present in the stats, sorted by increasing popularity (using last commit)
-fn get_sorted_languages<P>(global_stats: &Stats<P>) -> Vec<tokei::LanguageType> {
-    let mut language_map = HashMap::new();
+fn get_sorted_languages<P: TimePeriod>(global_stats: &Stats<P>) -> Vec<tokei::LanguageType> {
+    let mut language_map: HashMap<tokei::LanguageType, usize> = HashMap::new();
     for historic_stats in global_stats.repositories.values() {
         let last_commit =
             historic_stats.periods.values().last().expect("repository should have at least one commit");
@@ -121,21 +121,23 @@ fn get_sorted_languages<P>(global_stats: &Stats<P>) -> Vec<tokei::LanguageType> 
             *language_map.entry(*language).or_insert(0) += line_count;
         }
     }
-    let mut languages: Vec<_> = language_map.keys().copied().collect();
-    languages.sort_by(|a, b| language_map[a].cmp(&language_map[b]));
-    languages
+    let mut languages: Vec<_> = language_map.into_iter().collect();
+    languages.sort_by_key(|&(_, count)| count);
+    languages.into_iter().map(|(lang, _)| lang).collect()
 }
 
 /// Returns the repositories present in the stats, sorted by increasing size (using last commit)
-fn get_sorted_repos<P>(global_stats: &Stats<P>) -> Vec<PathBuf> {
-    let mut repo_map = HashMap::new();
-    for (repo, historic_stats) in &global_stats.repositories {
-        let last_commit =
-            historic_stats.periods.values().last().expect("repository should have at least one commit");
-        let total: usize = last_commit.languages.values().sum();
-        repo_map.insert(repo.clone(), total);
-    }
-    let mut repos: Vec<_> = repo_map.keys().cloned().collect();
-    repos.sort_by(|a, b| repo_map[a].cmp(&repo_map[b]));
-    repos
+fn get_sorted_repos<P: TimePeriod>(global_stats: &Stats<P>) -> Vec<PathBuf> {
+    let mut repos: Vec<_> = global_stats
+        .repositories
+        .iter()
+        .map(|(repo, historic_stats)| {
+            let last_commit =
+                historic_stats.periods.values().last().expect("repository should have at least one commit");
+            let total: usize = last_commit.languages.values().sum();
+            (repo.clone(), total)
+        })
+        .collect();
+    repos.sort_by_key(|&(_, total)| total);
+    repos.into_iter().map(|(repo, _)| repo).collect()
 }
