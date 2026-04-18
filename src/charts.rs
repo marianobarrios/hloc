@@ -19,10 +19,10 @@ pub fn write_output<P: TimePeriod>(
     let by_repo_data = get_by_repo_chart(base_dir, stats);
     let by_lang_data = get_by_lang_chart(stats);
 
-    match fs::remove_dir_all(output_dir) {
-        Ok(()) => {}
-        Err(err) if err.kind() == io::ErrorKind::NotFound => (),
-        Err(err) => panic!("{}", err),
+    if let Err(err) = fs::remove_dir_all(output_dir)
+        && err.kind() != io::ErrorKind::NotFound
+    {
+        panic!("{}", err);
     }
     fs::create_dir(output_dir)
         .with_context(|| format!("cannot create directory {}", output_dir.display()))?;

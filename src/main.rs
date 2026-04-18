@@ -322,10 +322,7 @@ fn configure_repo(repo: &Path, config: &[(GlobMatcher, RepoConfig)]) -> RepoConf
 
 /// Checks whether the supplied path is a Git repo with at least one commit
 fn is_git_repo(path: &Path) -> bool {
-    match git2::Repository::open(path) {
-        Ok(repo) => repo.head().is_ok(),
-        Err(_) => false,
-    }
+    if let Ok(repo) = git2::Repository::open(path) { repo.head().is_ok() } else { false }
 }
 
 /// The display name of a repository is its path relative to the common ancestor of the base
